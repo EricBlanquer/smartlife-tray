@@ -21,7 +21,7 @@ Les adresses IP ne sont jamais codées en dur : les appareils sont redécouverts
 - Position du panneau (louvre) : positions fixes, oscillation, arrêt
 - Éco et sommeil
 - Marche/arrêt, luminosité et température de couleur des ampoules
-- Rafraîchissement automatique, détection des appareils hors ligne
+- Rafraîchissement automatique adaptatif, détection des appareils hors ligne
 
 ## Installation
 
@@ -78,6 +78,39 @@ Exec=/chemin/vers/venv/bin/python /chemin/vers/smartlife_tray.py
 Icon=/chemin/vers/icons/smartlife-tray.svg
 Terminal=false
 ```
+
+## Rafraîchissement adaptatif
+
+L'état des appareils n'est pas poussé par les appareils : il faut les interroger. Comme l'état n'est
+visible que menu ouvert, la fréquence d'interrogation suit l'ouverture du menu :
+
+| Situation | Intervalle |
+|-----------|-----------|
+| Pendant les 60 s qui suivent une interaction avec le menu | 4 s, plus un rafraîchissement immédiat |
+| Au repos | 180 s |
+| Avant toute interaction avec le menu | 15 s |
+
+Un changement fait depuis l'application SmartLife ou depuis un assistant vocal est donc visible en
+4 s au pire pendant que le menu est ouvert.
+
+Sous AppIndicator, le menu est dessiné par le shell via D-Bus : le `GtkMenu` local n'est jamais
+affiché et ses signaux `show` / `hide` ne se déclenchent pas à l'ouverture. La détection passe donc
+par une connexion D-Bus en mode moniteur, qui observe les appels `com.canonical.dbusmenu` adressés à
+l'application : `AboutToShowGroup` à l'ouverture du menu racine, `EventGroup` lors de la navigation
+dans les sous-menus.
+
+Il n'existe pas de signal de fermeture du menu racine : sous Cinnamon, ouvrir le menu, le laisser
+ouvert puis le refermer ne produit qu'un seul message, `AboutToShowGroup` à l'ouverture. La cadence
+rapide fonctionne donc par fenêtre glissante de 60 s, réarmée à chaque interaction, plutôt que par
+détection d'ouverture et de fermeture.
+
+Pour contrôler la cadence réellement appliquée, passer `SHOW_POLL_COUNTDOWN` à `True` en tête de
+`smartlife_tray.py` : la ligne d'état affiche alors le nombre de secondes restantes avant la
+prochaine interrogation. Désactivé par défaut.
+
+Garde-fou : tant qu'aucune interaction avec le menu n'a été observée, l'intervalle reste à 15 s. Si
+le bureau n'émet pas ces appels ou si le mode moniteur est refusé, l'application ne se retrouve
+jamais bloquée à 180 s.
 
 ## DPS
 

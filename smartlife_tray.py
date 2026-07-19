@@ -5,11 +5,12 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("AyatanaAppIndicator3", "0.1")
 
-from gi.repository import Gtk, GLib
+from gi.repository import Gtk, GLib, Gio
 from gi.repository import AyatanaAppIndicator3 as AppIndicator
 
 import hashlib
 import json
+import math
 import os
 import socket
 import threading
@@ -30,9 +31,19 @@ UDP_HEADER_LEN = 20
 UDP_FOOTER_LEN = 8
 DISCOVERY_TIMEOUT = 6.0
 DISCOVERY_RECV_TIMEOUT = 1.0
-POLL_INTERVAL_SECONDS = 30
+POLL_INTERVAL_MENU_OPEN_SECONDS = 4
+POLL_INTERVAL_IDLE_SECONDS = 180
+POLL_INTERVAL_UNCONFIRMED_SECONDS = 15
+MENU_ACTIVITY_WINDOW_SECONDS = 60
+SHOW_POLL_COUNTDOWN = False
+COUNTDOWN_TICK_MS = 1000
 SOCKET_TIMEOUT = 5
 COMMAND_SETTLE_SECONDS = 0.8
+
+MONITOR_CALL_TIMEOUT_MS = 5000
+
+DBUSMENU_MATCH_RULE = "interface='com.canonical.dbusmenu'"
+DBUSMENU_ACTIVITY_MEMBERS = ("AboutToShowGroup", "AboutToShow", "EventGroup")
 
 CATEGORY_AC = "kt"
 CATEGORY_LIGHT = "dj"
@@ -219,6 +230,52 @@ class Device:
         return None if raw is None else round(raw / BRIGHTNESS_MAX * 100)
 
 
+class MenuActivityMonitor:
+    def __init__(self, on_activity):
+        self.on_activity = on_activity
+        self.own_name = None
+        self.connection = None
+
+    def start(self):
+        try:
+            self.own_name = Gio.bus_get_sync(Gio.BusType.SESSION, None).get_unique_name()
+            address = Gio.dbus_address_get_for_bus_sync(Gio.BusType.SESSION, None)
+            connection = Gio.DBusConnection.new_for_address_sync(
+                address,
+                Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
+                | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
+                None,
+                None,
+            )
+            connection.set_exit_on_close(False)
+            connection.call_sync(
+                "org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
+                "org.freedesktop.DBus.Monitoring",
+                "BecomeMonitor",
+                GLib.Variant("(asu)", ([DBUSMENU_MATCH_RULE], 0)),
+                None,
+                Gio.DBusCallFlags.NONE,
+                MONITOR_CALL_TIMEOUT_MS,
+                None,
+            )
+            connection.add_filter(self.on_message, None)
+        except GLib.Error:
+            return
+        self.connection = connection
+
+    def on_message(self, connection, message, incoming, user_data):
+        self.handle_message(message)
+        return None
+
+    def handle_message(self, message):
+        if message.get_member() not in DBUSMENU_ACTIVITY_MEMBERS:
+            return
+        if message.get_destination() != self.own_name:
+            return
+        GLib.idle_add(self.on_activity)
+
+
 class TrayApplication:
     def __init__(self):
         self.devices = [Device(entry) for entry in self.load_devices()]
@@ -234,10 +291,17 @@ class TrayApplication:
         self.menu = Gtk.Menu()
         self.device_widgets = {}
         self.status_item = None
+        self.status_label = None
+        self.poll_source_id = None
+        self.activity_source_id = None
+        self.countdown_source_id = None
+        self.poll_interval_seconds = None
+        self.next_poll_time = None
+        self.menu_active = False
         self.build_menu()
         self.indicator.set_menu(self.menu)
         self.run_background(self.locate_and_refresh_all)
-        GLib.timeout_add_seconds(POLL_INTERVAL_SECONDS, self.on_poll_tick)
+        self.start_menu_monitor()
 
     def load_devices(self):
         with open(DEVICES_FILE) as handle:
@@ -283,10 +347,70 @@ class TrayApplication:
         self.busy = busy
         GLib.idle_add(self.sync_status_label)
 
+    def start_menu_monitor(self):
+        self.menu_monitor = MenuActivityMonitor(self.on_menu_activity)
+        self.menu_monitor.start()
+        self.schedule_poll(POLL_INTERVAL_UNCONFIRMED_SECONDS)
+
+    def schedule_poll(self, interval_seconds):
+        if self.poll_source_id is not None:
+            GLib.source_remove(self.poll_source_id)
+        self.poll_interval_seconds = interval_seconds
+        self.next_poll_time = time.monotonic() + interval_seconds
+        self.poll_source_id = GLib.timeout_add_seconds(interval_seconds, self.on_poll_tick)
+
     def on_poll_tick(self):
+        self.next_poll_time = time.monotonic() + self.poll_interval_seconds
+        if self.menu_active:
+            self.start_countdown()
         if not self.busy:
             self.run_background(self.refresh_all)
         return True
+
+    def poll_countdown(self):
+        if self.next_poll_time is None:
+            return None
+        return max(0, math.ceil(self.next_poll_time - time.monotonic()))
+
+    def start_countdown(self):
+        self.cancel_countdown()
+        if not SHOW_POLL_COUNTDOWN:
+            return
+        self.countdown_source_id = GLib.timeout_add(COUNTDOWN_TICK_MS, self.on_countdown_tick)
+
+    def cancel_countdown(self):
+        if self.countdown_source_id is not None:
+            GLib.source_remove(self.countdown_source_id)
+            self.countdown_source_id = None
+
+    def on_countdown_tick(self):
+        self.sync_status_label()
+        return True
+
+    def on_menu_activity(self):
+        self.restart_activity_window()
+        if not self.menu_active:
+            self.menu_active = True
+            self.schedule_poll(POLL_INTERVAL_MENU_OPEN_SECONDS)
+            self.start_countdown()
+            self.sync_status_label()
+            if not self.busy:
+                self.run_background(self.refresh_all)
+        return False
+
+    def restart_activity_window(self):
+        if self.activity_source_id is not None:
+            GLib.source_remove(self.activity_source_id)
+        self.activity_source_id = GLib.timeout_add_seconds(
+            MENU_ACTIVITY_WINDOW_SECONDS, self.on_activity_window_expired
+        )
+
+    def on_activity_window_expired(self):
+        self.activity_source_id = None
+        self.menu_active = False
+        self.cancel_countdown()
+        self.schedule_poll(POLL_INTERVAL_IDLE_SECONDS)
+        return False
 
     def build_menu(self):
         for device in self.devices:
@@ -417,8 +541,19 @@ class TrayApplication:
             text = f"{len(offline)} appareil(s) hors ligne"
         else:
             text = "Tous les appareils sont en ligne"
-        self.status_item.set_label(text)
+        label = self.with_countdown(text)
+        if label != self.status_label:
+            self.status_label = label
+            self.status_item.set_label(label)
         return False
+
+    def with_countdown(self, text):
+        if not SHOW_POLL_COUNTDOWN or self.busy or not self.menu_active:
+            return text
+        remaining = self.poll_countdown()
+        if remaining is None:
+            return text
+        return f"{text} ({remaining}{NBSP}s)"
 
     def sync_widgets(self):
         self.updating_widgets = True
