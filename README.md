@@ -19,9 +19,20 @@ Les adresses IP ne sont jamais codées en dur : les appareils sont redécouverts
 
 - Marche/arrêt, température, mode et vitesse de ventilation des climatiseurs
 - Position du panneau (louvre) : positions fixes, oscillation, arrêt
-- Éco et sommeil
+- Unité de température (Celsius ou Fahrenheit) et minuterie restante
+- Éco, sommeil, affichage, séchage et santé
 - Marche/arrêt, luminosité et température de couleur des ampoules
+- Couleur, scènes et minuterie d'extinction des ampoules, mode ne pas déranger
 - Rafraîchissement automatique adaptatif, détection des appareils hors ligne
+
+Les commandes couvrent tous les points de données que les appareils acceptent réellement.
+Les fonctions déclarées par le cloud Tuya mais ignorées par le matériel sont volontairement absentes : mode musique, programmations horaires et mémoire d'état côté ampoule.
+
+Le séchage, lui, est bien mémorisé par le climatiseur tant qu'il fonctionne, mais il n'a produit aucune ventilation après extinction et le point de données retombe à `false` au cycle marche/arrêt suivant.
+
+Deux points de données du climatiseur sont en revanche absents, car l'appareil les acquitte d'un bip sans rien en faire.
+`cleaning` ne lance aucun cycle et ne remonte jamais à `true`.
+`heat` n'a pas d'effet propre, l'appareil le traite comme un alias du séchage, alors que le chauffage se règle par le mode.
 
 ## Installation
 
@@ -65,8 +76,10 @@ l'application**, qui fonctionne hors ligne. Seul l'ajout de nouveaux appareils e
 ## Lancement
 
 ```bash
-venv/bin/python smartlife_tray.py
+./smartlife-tray
 ```
+
+Le lanceur retrouve le venv et le script à côté de lui, le dépôt peut donc être cloné n'importe où.
 
 Pour un démarrage automatique, créer `~/.config/autostart/smartlife-tray.desktop` :
 
@@ -74,7 +87,7 @@ Pour un démarrage automatique, créer `~/.config/autostart/smartlife-tray.deskt
 [Desktop Entry]
 Type=Application
 Name=SmartLife
-Exec=/chemin/vers/venv/bin/python /chemin/vers/smartlife_tray.py
+Exec=/chemin/vers/smartlife-tray
 Icon=/chemin/vers/icons/smartlife-tray.svg
 Terminal=false
 ```

@@ -32,8 +32,7 @@ UDP_FOOTER_LEN = 8
 DISCOVERY_TIMEOUT = 6.0
 DISCOVERY_RECV_TIMEOUT = 1.0
 POLL_INTERVAL_MENU_OPEN_SECONDS = 4
-POLL_INTERVAL_IDLE_SECONDS = 180
-POLL_INTERVAL_UNCONFIRMED_SECONDS = 15
+POLL_INTERVAL_NO_MENU_MONITOR_SECONDS = 180
 MENU_ACTIVITY_WINDOW_SECONDS = 60
 SHOW_POLL_COUNTDOWN = False
 COUNTDOWN_TICK_MS = 1000
@@ -54,17 +53,36 @@ DP_AC_TEMP_CURRENT = "3"
 DP_AC_MODE = "4"
 DP_AC_FAN_SPEED = "5"
 DP_AC_ECO = "8"
-DP_AC_SLEEP = "109"
+DP_AC_DRYING = "9"
+DP_AC_DISPLAY = "13"
+DP_AC_COUNTDOWN_LEFT = "22"
+DP_AC_TEMP_UNIT = "105"
 DP_AC_LOUVRE = "107"
+DP_AC_SLEEP = "109"
+DP_AC_HEALTH = "110"
 
 DP_LIGHT_SWITCH = "20"
 DP_LIGHT_WORK_MODE = "21"
 DP_LIGHT_BRIGHTNESS = "22"
 DP_LIGHT_COLOUR_TEMP = "23"
+DP_LIGHT_COLOUR = "24"
+DP_LIGHT_SCENE = "25"
+DP_LIGHT_COUNTDOWN = "26"
+DP_LIGHT_DO_NOT_DISTURB = "34"
 
 TEMP_SCALE = 10
-TEMP_MIN_CELSIUS = 16
-TEMP_MAX_CELSIUS = 30
+TEMP_UNIT_CELSIUS = "c"
+TEMP_UNIT_FAHRENHEIT = "f"
+
+TEMP_RANGES = {
+    TEMP_UNIT_CELSIUS: (16, 30, "°C"),
+    TEMP_UNIT_FAHRENHEIT: (61, 86, "°F"),
+}
+
+TEMP_UNITS = [
+    (TEMP_UNIT_CELSIUS, "Celsius"),
+    (TEMP_UNIT_FAHRENHEIT, "Fahrenheit"),
+]
 
 BRIGHTNESS_MIN = 10
 BRIGHTNESS_MAX = 1000
@@ -73,7 +91,13 @@ BRIGHTNESS_STEP_PERCENT = 10
 COLOUR_TEMP_MIN = 0
 COLOUR_TEMP_MAX = 1000
 
+COLOUR_SATURATION = 1000
+COLOUR_VALUE = 1000
+COLOUR_HUE_DIGITS = 4
+
 WORK_MODE_WHITE = "white"
+WORK_MODE_COLOUR = "colour"
+WORK_MODE_SCENE = "scene"
 
 NBSP = " "
 MARK_ON = "●"
@@ -111,12 +135,66 @@ AC_LOUVRE_POSITIONS = [
     (AC_LOUVRE_OFF, "Éteindre"),
 ]
 
+AC_FLAGS = [
+    ("eco", DP_AC_ECO, "Éco"),
+    ("sleep", DP_AC_SLEEP, "Sommeil"),
+    ("display", DP_AC_DISPLAY, "Affichage"),
+    ("drying", DP_AC_DRYING, "Séchage"),
+    ("health", DP_AC_HEALTH, "Santé"),
+]
+
 COLOUR_TEMP_PRESETS = [
     (0, "Blanc chaud"),
     (250, "Chaud"),
     (500, "Neutre"),
     (750, "Froid"),
     (1000, "Lumière du jour"),
+]
+
+COLOUR_PRESETS = [
+    (0, "Rouge"),
+    (30, "Orange"),
+    (60, "Jaune"),
+    (120, "Vert"),
+    (180, "Cyan"),
+    (240, "Bleu"),
+    (280, "Violet"),
+    (320, "Magenta"),
+]
+
+LIGHT_SCENES = [
+    ("000e0d0000000000000000c80000", "Nuit"),
+    ("010e0d0000000000000003e801f4", "Lecture"),
+    ("020e0d0000000000000003e803e8", "Travail"),
+    ("030e0d0000000000000001f401f4", "Détente"),
+    (
+        "04464602007803e803e800000000464601000003e803e800000000",
+        "Douceur",
+    ),
+    (
+        "05464601000003e803e800000000464602007803e803e80000000046460300f003e803e800000000",
+        "Arc-en-ciel",
+    ),
+    (
+        "06464601000003e803e800000000464602007803e803e80000000046460300f003e803e800000000",
+        "Scintillement",
+    ),
+    (
+        "07464602000003e803e800000000464601007803e803e80000000046460100f003e803e800000000"
+        "464601003d03e803e80000000046460100ae03e803e800000000464601011303e803e800000000",
+        "Somptueux",
+    ),
+]
+
+SECONDS_PER_MINUTE = 60
+
+LIGHT_COUNTDOWNS = [
+    (0, "Aucune"),
+    (15 * SECONDS_PER_MINUTE, "15 min"),
+    (30 * SECONDS_PER_MINUTE, "30 min"),
+    (60 * SECONDS_PER_MINUTE, "1 h"),
+    (120 * SECONDS_PER_MINUTE, "2 h"),
+    (240 * SECONDS_PER_MINUTE, "4 h"),
 ]
 
 
@@ -157,8 +235,22 @@ def clamp(value, low, high):
     return max(low, min(high, value))
 
 
+def format_temperature(value, unit):
+    return f"{value:.0f}{NBSP}{TEMP_RANGES[unit][2]}"
+
+
 def format_celsius(celsius):
-    return f"{celsius:.0f}{NBSP}°C"
+    return format_temperature(celsius, TEMP_UNIT_CELSIUS)
+
+
+def format_countdown(minutes):
+    if not minutes:
+        return f"Minuterie{NBSP}: aucune"
+    return f"Minuterie{NBSP}: {minutes}{NBSP}min"
+
+
+def colour_payload(hue):
+    return f"{hue:04x}{COLOUR_SATURATION:04x}{COLOUR_VALUE:04x}"
 
 
 class Device:
@@ -225,9 +317,26 @@ class Device:
         raw = self.dps.get(DP_AC_TEMP_CURRENT)
         return None if raw is None else raw / TEMP_SCALE
 
+    def temperature_unit(self):
+        unit = self.dps.get(DP_AC_TEMP_UNIT)
+        return unit if unit in TEMP_RANGES else TEMP_UNIT_CELSIUS
+
     def brightness_percent(self):
         raw = self.dps.get(DP_LIGHT_BRIGHTNESS)
         return None if raw is None else round(raw / BRIGHTNESS_MAX * 100)
+
+    def colour_hue(self):
+        raw = self.dps.get(DP_LIGHT_COLOUR)
+        if not isinstance(raw, str) or len(raw) < COLOUR_HUE_DIGITS:
+            return None
+        try:
+            return int(raw[:COLOUR_HUE_DIGITS], 16)
+        except ValueError:
+            return None
+
+    def countdown_minutes(self):
+        raw = self.dps.get(DP_LIGHT_COUNTDOWN)
+        return None if raw is None else round(raw / SECONDS_PER_MINUTE)
 
 
 class MenuActivityMonitor:
@@ -350,11 +459,23 @@ class TrayApplication:
     def start_menu_monitor(self):
         self.menu_monitor = MenuActivityMonitor(self.on_menu_activity)
         self.menu_monitor.start()
-        self.schedule_poll(POLL_INTERVAL_UNCONFIRMED_SECONDS)
+        self.schedule_idle_poll()
 
-    def schedule_poll(self, interval_seconds):
+    def schedule_idle_poll(self):
+        if self.menu_monitor.connection is None:
+            self.schedule_poll(POLL_INTERVAL_NO_MENU_MONITOR_SECONDS)
+        else:
+            self.cancel_poll()
+
+    def cancel_poll(self):
         if self.poll_source_id is not None:
             GLib.source_remove(self.poll_source_id)
+            self.poll_source_id = None
+        self.poll_interval_seconds = None
+        self.next_poll_time = None
+
+    def schedule_poll(self, interval_seconds):
+        self.cancel_poll()
         self.poll_interval_seconds = interval_seconds
         self.next_poll_time = time.monotonic() + interval_seconds
         self.poll_source_id = GLib.timeout_add_seconds(interval_seconds, self.on_poll_tick)
@@ -409,7 +530,7 @@ class TrayApplication:
         self.activity_source_id = None
         self.menu_active = False
         self.cancel_countdown()
-        self.schedule_poll(POLL_INTERVAL_IDLE_SECONDS)
+        self.schedule_idle_poll()
         return False
 
     def build_menu(self):
@@ -456,19 +577,20 @@ class TrayApplication:
         submenu.append(ambient)
         widgets["ambient"] = ambient
 
+        countdown = Gtk.MenuItem(label=format_countdown(None))
+        countdown.set_sensitive(False)
+        submenu.append(countdown)
+        widgets["countdown"] = countdown
+
         temp_item = Gtk.MenuItem(label="Température")
         temp_menu = Gtk.Menu()
-        widgets["temperature"] = {}
-        group = []
-        for celsius in range(TEMP_MIN_CELSIUS, TEMP_MAX_CELSIUS + 1):
-            entry = Gtk.RadioMenuItem.new_with_label(group, format_celsius(celsius))
-            group = entry.get_group()
-            entry.connect("toggled", self.on_temperature_selected, device, celsius)
-            temp_menu.append(entry)
-            widgets["temperature"][celsius] = entry
         temp_item.set_submenu(temp_menu)
         submenu.append(temp_item)
+        widgets["temperature"] = {}
+        widgets["temperature_menu"] = temp_menu
         widgets["temperature_root"] = temp_item
+        widgets["temperature_unit"] = None
+        self.build_temperature_entries(widgets, device)
 
         widgets["mode"] = self.build_enum_submenu(
             submenu, "Mode", AC_MODES, self.on_mode_selected, device
@@ -479,18 +601,38 @@ class TrayApplication:
         widgets["louvre"] = self.build_enum_submenu(
             submenu, "Panneau", AC_LOUVRE_POSITIONS, self.on_louvre_selected, device
         )
+        widgets["unit"] = self.build_enum_submenu(
+            submenu, "Unité", TEMP_UNITS, self.on_temp_unit_selected, device
+        )
 
         submenu.append(Gtk.SeparatorMenuItem())
 
-        eco = Gtk.CheckMenuItem(label="Éco")
-        eco.connect("toggled", self.on_flag_toggled, device, DP_AC_ECO)
-        submenu.append(eco)
-        widgets["eco"] = eco
+        for key, dp, label in AC_FLAGS:
+            self.build_flag(submenu, widgets, device, key, dp, label)
 
-        sleep = Gtk.CheckMenuItem(label="Sommeil")
-        sleep.connect("toggled", self.on_flag_toggled, device, DP_AC_SLEEP)
-        submenu.append(sleep)
-        widgets["sleep"] = sleep
+    def build_temperature_entries(self, widgets, device):
+        unit = device.temperature_unit()
+        if widgets["temperature_unit"] == unit:
+            return
+        menu = widgets["temperature_menu"]
+        for child in menu.get_children():
+            menu.remove(child)
+        widgets["temperature"] = {}
+        low, high, _ = TEMP_RANGES[unit]
+        group = []
+        for value in range(low, high + 1):
+            entry = Gtk.RadioMenuItem.new_with_label(group, format_temperature(value, unit))
+            group = entry.get_group()
+            entry.connect("toggled", self.on_temperature_selected, device, value)
+            menu.append(entry)
+            widgets["temperature"][value] = entry
+        widgets["temperature_unit"] = unit
+
+    def build_flag(self, submenu, widgets, device, key, dp, label):
+        item = Gtk.CheckMenuItem(label=label)
+        item.connect("toggled", self.on_flag_toggled, device, dp)
+        submenu.append(item)
+        widgets[key] = item
 
     def build_light_menu(self, submenu, widgets, device):
         bright_item = Gtk.MenuItem(label="Luminosité")
@@ -513,6 +655,26 @@ class TrayApplication:
             COLOUR_TEMP_PRESETS,
             self.on_colour_temp_selected,
             device,
+        )
+        widgets["colour"] = self.build_enum_submenu(
+            submenu, "Couleur", COLOUR_PRESETS, self.on_colour_selected, device
+        )
+        widgets["scene"] = self.build_enum_submenu(
+            submenu, "Scène", LIGHT_SCENES, self.on_scene_selected, device
+        )
+        widgets["light_countdown"] = self.build_enum_submenu(
+            submenu, format_countdown(None), LIGHT_COUNTDOWNS, self.on_countdown_selected, device
+        )
+
+        submenu.append(Gtk.SeparatorMenuItem())
+
+        self.build_flag(
+            submenu,
+            widgets,
+            device,
+            "do_not_disturb",
+            DP_LIGHT_DO_NOT_DISTURB,
+            "Ne pas déranger",
         )
 
     def build_enum_submenu(self, submenu, title, entries, handler, device):
@@ -584,7 +746,8 @@ class TrayApplication:
             target = device.temperature_set()
             mode = dict(AC_MODES).get(device.dps.get(DP_AC_MODE), "")
             if target is not None:
-                return f"{mark} {device.name}{NBSP}: {format_celsius(target)}, {mode}"
+                unit = device.temperature_unit()
+                return f"{mark} {device.name}{NBSP}: {format_temperature(target, unit)}, {mode}"
             return f"{mark} {device.name}{NBSP}: {mode}"
         if device.is_light:
             percent = device.brightness_percent()
@@ -600,25 +763,30 @@ class TrayApplication:
             else f"Ambiant{NBSP}: inconnu"
         )
 
+        widgets["countdown"].set_label(format_countdown(device.dps.get(DP_AC_COUNTDOWN_LEFT)))
+
+        self.build_temperature_entries(widgets, device)
         target = device.temperature_set()
         if target is not None:
-            rounded = clamp(round(target), TEMP_MIN_CELSIUS, TEMP_MAX_CELSIUS)
-            entry = widgets["temperature"].get(rounded)
+            low, high, _ = TEMP_RANGES[device.temperature_unit()]
+            entry = widgets["temperature"].get(clamp(round(target), low, high))
             if entry:
                 entry.set_active(True)
 
         self.sync_enum(widgets["mode"], device.dps.get(DP_AC_MODE))
         self.sync_enum(widgets["fan"], device.dps.get(DP_AC_FAN_SPEED))
         self.sync_enum(widgets["louvre"], device.dps.get(DP_AC_LOUVRE))
+        self.sync_enum(widgets["unit"], device.temperature_unit())
 
-        widgets["eco"].set_active(bool(device.dps.get(DP_AC_ECO)))
-        widgets["sleep"].set_active(bool(device.dps.get(DP_AC_SLEEP)))
+        for key, dp, _ in AC_FLAGS:
+            widgets[key].set_active(bool(device.dps.get(dp)))
 
-        for key in ("temperature_root", "eco", "sleep"):
-            widgets[key].set_sensitive(device.online and device.is_on)
-        widgets["mode"]["__root__"].set_sensitive(device.online and device.is_on)
-        widgets["fan"]["__root__"].set_sensitive(device.online and device.is_on)
-        widgets["louvre"]["__root__"].set_sensitive(device.online and device.is_on)
+        available = device.online and device.is_on
+        for key, _, _ in AC_FLAGS:
+            widgets[key].set_sensitive(available)
+        widgets["temperature_root"].set_sensitive(available)
+        for key in ("mode", "fan", "louvre", "unit"):
+            widgets[key]["__root__"].set_sensitive(available)
 
     def sync_light(self, widgets, device):
         percent = device.brightness_percent()
@@ -639,18 +807,36 @@ class TrayApplication:
             if entry:
                 entry.set_active(True)
 
-        widgets["brightness_root"].set_sensitive(device.online and device.is_on)
-        widgets["colour_temp"]["__root__"].set_sensitive(device.online and device.is_on)
+        hue = device.colour_hue()
+        if hue is not None:
+            closest = min(COLOUR_PRESETS, key=lambda p: abs(p[0] - hue))[0]
+            entry = widgets["colour"].get(closest)
+            if entry:
+                entry.set_active(True)
+
+        self.sync_enum(widgets["scene"], device.dps.get(DP_LIGHT_SCENE))
+        widgets["light_countdown"]["__root__"].set_label(
+            format_countdown(device.countdown_minutes())
+        )
+        widgets["do_not_disturb"].set_active(bool(device.dps.get(DP_LIGHT_DO_NOT_DISTURB)))
+
+        available = device.online and device.is_on
+        widgets["brightness_root"].set_sensitive(available)
+        for key in ("colour_temp", "colour", "scene", "light_countdown"):
+            widgets[key]["__root__"].set_sensitive(available)
+        widgets["do_not_disturb"].set_sensitive(device.online)
 
     def sync_enum(self, widgets, value):
         entry = widgets.get(value)
         if entry:
             entry.set_active(True)
 
-    def send(self, device, dp, value):
+    def send(self, device, dp, value, work_mode=None):
         def work():
             self.set_busy(True)
             try:
+                if work_mode is not None and device.dps.get(DP_LIGHT_WORK_MODE) != work_mode:
+                    device.apply(DP_LIGHT_WORK_MODE, work_mode)
                 device.apply(dp, value)
                 time.sleep(COMMAND_SETTLE_SECONDS)
                 device.refresh()
@@ -671,10 +857,15 @@ class TrayApplication:
             return
         self.send(device, dp, item.get_active())
 
-    def on_temperature_selected(self, item, device, celsius):
+    def on_temperature_selected(self, item, device, value):
         if self.updating_widgets or not item.get_active():
             return
-        self.send(device, DP_AC_TEMP_SET, int(celsius * TEMP_SCALE))
+        self.send(device, DP_AC_TEMP_SET, int(value * TEMP_SCALE))
+
+    def on_temp_unit_selected(self, item, device, value):
+        if self.updating_widgets or not item.get_active():
+            return
+        self.send(device, DP_AC_TEMP_UNIT, value)
 
     def on_mode_selected(self, item, device, value):
         if self.updating_widgets or not item.get_active():
@@ -700,21 +891,27 @@ class TrayApplication:
     def on_colour_temp_selected(self, item, device, value):
         if self.updating_widgets or not item.get_active():
             return
+        self.send(
+            device,
+            DP_LIGHT_COLOUR_TEMP,
+            clamp(value, COLOUR_TEMP_MIN, COLOUR_TEMP_MAX),
+            work_mode=WORK_MODE_WHITE,
+        )
 
-        def work():
-            self.set_busy(True)
-            try:
-                if device.dps.get(DP_LIGHT_WORK_MODE) != WORK_MODE_WHITE:
-                    device.apply(DP_LIGHT_WORK_MODE, WORK_MODE_WHITE)
-                device.apply(DP_LIGHT_COLOUR_TEMP, clamp(value, COLOUR_TEMP_MIN, COLOUR_TEMP_MAX))
-                time.sleep(COMMAND_SETTLE_SECONDS)
-                device.refresh()
-            except Exception:
-                device.online = False
-            self.set_busy(False)
-            GLib.idle_add(self.sync_widgets)
+    def on_colour_selected(self, item, device, hue):
+        if self.updating_widgets or not item.get_active():
+            return
+        self.send(device, DP_LIGHT_COLOUR, colour_payload(hue), work_mode=WORK_MODE_COLOUR)
 
-        self.run_background(work)
+    def on_scene_selected(self, item, device, data):
+        if self.updating_widgets or not item.get_active():
+            return
+        self.send(device, DP_LIGHT_SCENE, data, work_mode=WORK_MODE_SCENE)
+
+    def on_countdown_selected(self, item, device, seconds):
+        if self.updating_widgets or not item.get_active():
+            return
+        self.send(device, DP_LIGHT_COUNTDOWN, seconds)
 
     def on_refresh_clicked(self, item):
         self.run_background(self.locate_and_refresh_all)
