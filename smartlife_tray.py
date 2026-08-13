@@ -15,6 +15,7 @@ import os
 import socket
 import threading
 import time
+import unicodedata
 
 import tinytuya
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -24,6 +25,13 @@ APP_TITLE = "SmartLife"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEVICES_FILE = os.path.join(BASE_DIR, "devices.json")
 ICON_FILE = os.path.join(BASE_DIR, "icons", "smartlife-tray.svg")
+CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+    os.path.expanduser("~"), ".config"
+)
+CONFIG_DIR = os.path.join(CONFIG_HOME, APP_ID)
+PRESETS_FILE = os.path.join(CONFIG_DIR, "presets.json")
+PRESETS_TEMP_FILE = PRESETS_FILE + ".tmp"
+PRESETS_INDENT = 2
 
 UDP_PORT = 6667
 UDP_KEY = hashlib.md5(b"yGAdlopoPVldABfn").digest()
@@ -70,6 +78,30 @@ DP_LIGHT_SCENE = "25"
 DP_LIGHT_COUNTDOWN = "26"
 DP_LIGHT_DO_NOT_DISTURB = "34"
 
+AC_PRESET_DPS = (
+    DP_AC_SWITCH,
+    DP_AC_TEMP_UNIT,
+    DP_AC_MODE,
+    DP_AC_TEMP_SET,
+    DP_AC_FAN_SPEED,
+    DP_AC_LOUVRE,
+    DP_AC_ECO,
+    DP_AC_SLEEP,
+    DP_AC_DISPLAY,
+    DP_AC_DRYING,
+    DP_AC_HEALTH,
+)
+
+LIGHT_PRESET_DPS = (
+    DP_LIGHT_SWITCH,
+    DP_LIGHT_WORK_MODE,
+    DP_LIGHT_BRIGHTNESS,
+    DP_LIGHT_COLOUR_TEMP,
+    DP_LIGHT_COLOUR,
+    DP_LIGHT_SCENE,
+    DP_LIGHT_DO_NOT_DISTURB,
+)
+
 TEMP_SCALE = 10
 TEMP_UNIT_CELSIUS = "c"
 TEMP_UNIT_FAHRENHEIT = "f"
@@ -99,9 +131,18 @@ WORK_MODE_WHITE = "white"
 WORK_MODE_COLOUR = "colour"
 WORK_MODE_SCENE = "scene"
 
+WORK_MODE_DPS = {
+    WORK_MODE_WHITE: (DP_LIGHT_COLOUR_TEMP,),
+    WORK_MODE_COLOUR: (DP_LIGHT_COLOUR,),
+    WORK_MODE_SCENE: (DP_LIGHT_SCENE,),
+}
+
 NBSP = " "
 MARK_ON = "●"
 MARK_OFF = "○"
+
+DIALOG_BORDER_WIDTH = 12
+DIALOG_SPACING = 8
 
 AC_MODES = [
     ("cold", "Froid"),
@@ -249,6 +290,11 @@ def format_countdown(minutes):
     return f"Minuterie{NBSP}: {minutes}{NBSP}min"
 
 
+def preset_sort_key(name):
+    folded = unicodedata.normalize("NFKD", name)
+    return ("".join(c for c in folded if not unicodedata.combining(c)).lower(), name)
+
+
 def colour_payload(hue):
     return f"{hue:04x}{COLOUR_SATURATION:04x}{COLOUR_VALUE:04x}"
 
@@ -281,6 +327,14 @@ class Device:
     def is_on(self):
         return bool(self.dps.get(self.switch_dp))
 
+    @property
+    def preset_dps(self):
+        if self.is_air_conditioner:
+            return AC_PRESET_DPS
+        if self.is_light:
+            return LIGHT_PRESET_DPS
+        return ()
+
     def open_connection(self):
         if not self.ip or not self.version:
             return None
@@ -308,6 +362,44 @@ class Device:
         if isinstance(result, dict) and "dps" in result:
             self.dps.update(result["dps"])
         return not (isinstance(result, dict) and result.get("Error"))
+
+    def apply_many(self, values):
+        connection = self.open_connection()
+        if connection is None:
+            return False
+        result = connection.set_multiple_values(values)
+        if isinstance(result, dict) and "dps" in result:
+            self.dps.update(result["dps"])
+        return not (isinstance(result, dict) and result.get("Error"))
+
+    def capture_preset(self):
+        return {dp: self.dps[dp] for dp in self.preset_dps if dp in self.dps}
+
+    def preset_settings(self, values):
+        settings = {
+            dp: values[dp] for dp in self.preset_dps if dp in values and dp != self.switch_dp
+        }
+        work_mode = values.get(DP_LIGHT_WORK_MODE)
+        if not self.is_light or work_mode not in WORK_MODE_DPS:
+            return settings
+        for mode, dps in WORK_MODE_DPS.items():
+            if mode != work_mode:
+                for dp in dps:
+                    settings.pop(dp, None)
+        return settings
+
+    def apply_preset(self, values):
+        switch = values.get(self.switch_dp)
+        settings = self.preset_settings(values)
+        if switch is not None and not switch:
+            return self.apply(self.switch_dp, False)
+        if switch and not self.is_on:
+            if not self.apply(self.switch_dp, True):
+                return False
+            time.sleep(COMMAND_SETTLE_SECONDS)
+        if not settings:
+            return True
+        return self.apply_many(settings)
 
     def temperature_set(self):
         raw = self.dps.get(DP_AC_TEMP_SET)
@@ -388,6 +480,7 @@ class MenuActivityMonitor:
 class TrayApplication:
     def __init__(self):
         self.devices = [Device(entry) for entry in self.load_devices()]
+        self.presets = self.load_presets()
         self.updating_widgets = False
         self.busy = False
         self.indicator = AppIndicator.Indicator.new(
@@ -415,6 +508,38 @@ class TrayApplication:
     def load_devices(self):
         with open(DEVICES_FILE) as handle:
             return json.load(handle)
+
+    def load_presets(self):
+        try:
+            with open(PRESETS_FILE, encoding="utf-8") as handle:
+                stored = json.load(handle)
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(stored, dict):
+            return {}
+        return {
+            device_id: presets
+            for device_id, presets in stored.items()
+            if isinstance(presets, dict)
+        }
+
+    def save_presets(self):
+        try:
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            with open(PRESETS_TEMP_FILE, "w", encoding="utf-8") as handle:
+                json.dump(self.presets, handle, indent=PRESETS_INDENT, ensure_ascii=False)
+            os.replace(PRESETS_TEMP_FILE, PRESETS_FILE)
+            return True
+        except OSError as ex:
+            self.discard_temp_presets()
+            self.report_error(f"Enregistrement impossible{NBSP}: {ex}")
+            return False
+
+    def discard_temp_presets(self):
+        try:
+            os.remove(PRESETS_TEMP_FILE)
+        except OSError:
+            pass
 
     def run_background(self, work):
         thread = threading.Thread(target=work, daemon=True)
@@ -546,6 +671,10 @@ class TrayApplication:
 
             submenu.append(Gtk.SeparatorMenuItem())
 
+            self.build_presets_menu(submenu, widgets, device)
+
+            submenu.append(Gtk.SeparatorMenuItem())
+
             if device.is_air_conditioner:
                 self.build_air_conditioner_menu(submenu, widgets, device)
             elif device.is_light:
@@ -570,6 +699,57 @@ class TrayApplication:
         self.menu.append(quit_item)
 
         self.menu.show_all()
+
+    def build_presets_menu(self, submenu, widgets, device):
+        root = Gtk.MenuItem(label="Préréglages")
+        menu = Gtk.Menu()
+        root.set_submenu(menu)
+        submenu.append(root)
+        widgets["presets_root"] = root
+        widgets["presets_menu"] = menu
+        self.fill_presets_menu(widgets, device)
+
+    def fill_presets_menu(self, widgets, device):
+        menu = widgets["presets_menu"]
+        for child in menu.get_children():
+            menu.remove(child)
+        names = self.preset_names(device)
+        for name in names:
+            entry = Gtk.MenuItem(label=name)
+            entry.connect("activate", self.on_preset_activated, device, name)
+            menu.append(entry)
+        if names:
+            menu.append(Gtk.SeparatorMenuItem())
+        save = Gtk.MenuItem(label="Enregistrer l'état actuel…")
+        save.connect("activate", self.on_preset_save_clicked, device)
+        menu.append(save)
+        if names:
+            delete_root = Gtk.MenuItem(label="Supprimer")
+            delete_menu = Gtk.Menu()
+            for name in names:
+                entry = Gtk.MenuItem(label=name)
+                entry.connect("activate", self.on_preset_delete_clicked, device, name)
+                delete_menu.append(entry)
+            delete_root.set_submenu(delete_menu)
+            menu.append(delete_root)
+        menu.show_all()
+
+    def store_presets(self, device, presets):
+        previous = self.presets.get(device.id)
+        if presets:
+            self.presets[device.id] = presets
+        else:
+            self.presets.pop(device.id, None)
+        if not self.save_presets():
+            if previous is None:
+                self.presets.pop(device.id, None)
+            else:
+                self.presets[device.id] = previous
+            return
+        self.fill_presets_menu(self.device_widgets[device.id], device)
+
+    def preset_names(self, device):
+        return sorted(self.presets.get(device.id, {}), key=preset_sort_key)
 
     def build_air_conditioner_menu(self, submenu, widgets, device):
         ambient = Gtk.MenuItem(label="")
@@ -726,6 +906,7 @@ class TrayApplication:
             power = widgets["power"]
             power.set_active(device.is_on)
             power.set_sensitive(device.online)
+            widgets["presets_root"].set_sensitive(device.online)
 
             if device.is_air_conditioner:
                 self.sync_air_conditioner(widgets, device)
@@ -846,6 +1027,92 @@ class TrayApplication:
             GLib.idle_add(self.sync_widgets)
 
         self.run_background(work)
+
+    def send_preset(self, device, values):
+        def work():
+            self.set_busy(True)
+            try:
+                device.apply_preset(values)
+                time.sleep(COMMAND_SETTLE_SECONDS)
+                device.refresh()
+            except Exception:
+                device.online = False
+            self.set_busy(False)
+            GLib.idle_add(self.sync_widgets)
+
+        self.run_background(work)
+
+    def ask_preset_name(self, device):
+        dialog = Gtk.Dialog(title="Préréglage", modal=True)
+        dialog.add_button("Annuler", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Enregistrer", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        label = Gtk.Label(label=f"Nom du préréglage pour {device.name}{NBSP}:")
+        label.set_xalign(0)
+        entry = Gtk.Entry()
+        entry.set_activates_default(True)
+        content = dialog.get_content_area()
+        content.set_border_width(DIALOG_BORDER_WIDTH)
+        content.set_spacing(DIALOG_SPACING)
+        content.add(label)
+        content.add(entry)
+        dialog.show_all()
+        response = dialog.run()
+        name = entry.get_text().strip()
+        dialog.destroy()
+        return name if response == Gtk.ResponseType.OK else None
+
+    def confirm(self, question):
+        dialog = Gtk.MessageDialog(
+            modal=True,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text=question,
+        )
+        response = dialog.run()
+        dialog.destroy()
+        return response == Gtk.ResponseType.OK
+
+    def report_error(self, message):
+        dialog = Gtk.MessageDialog(
+            modal=True,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.CLOSE,
+            text=message,
+        )
+        dialog.run()
+        dialog.destroy()
+
+    def on_preset_activated(self, item, device, name):
+        values = self.presets.get(device.id, {}).get(name)
+        if not isinstance(values, dict) or not values:
+            return
+        self.send_preset(device, values)
+
+    def on_preset_save_clicked(self, item, device):
+        values = device.capture_preset()
+        if not values:
+            self.report_error(f"Aucun état connu pour {device.name}.")
+            return
+        name = self.ask_preset_name(device)
+        if not name:
+            return
+        presets = dict(self.presets.get(device.id, {}))
+        if name in presets and not self.confirm(
+            f"Remplacer le préréglage «{NBSP}{name}{NBSP}»{NBSP}?"
+        ):
+            return
+        presets[name] = values
+        self.store_presets(device, presets)
+
+    def on_preset_delete_clicked(self, item, device, name):
+        presets = dict(self.presets.get(device.id, {}))
+        if name not in presets:
+            return
+        if not self.confirm(f"Supprimer le préréglage «{NBSP}{name}{NBSP}»{NBSP}?"):
+            return
+        del presets[name]
+        self.store_presets(device, presets)
 
     def on_power_toggled(self, item, device):
         if self.updating_widgets:

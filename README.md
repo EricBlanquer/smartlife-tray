@@ -23,6 +23,7 @@ Les adresses IP ne sont jamais codées en dur : les appareils sont redécouverts
 - Éco, sommeil, affichage, séchage et santé
 - Marche/arrêt, luminosité et température de couleur des ampoules
 - Couleur, scènes et minuterie d'extinction des ampoules, mode ne pas déranger
+- Préréglages par appareil : capture de l'état courant, rejeu en un clic
 - Rafraîchissement automatique adaptatif, détection des appareils hors ligne
 
 Les commandes couvrent tous les points de données que les appareils acceptent réellement.
@@ -91,6 +92,26 @@ Exec=/chemin/vers/smartlife-tray
 Icon=/chemin/vers/icons/smartlife-tray.svg
 Terminal=false
 ```
+
+## Préréglages
+
+Chaque appareil a son sous-menu **Préréglages**.
+« Enregistrer l'état actuel… » demande un nom et mémorise les réglages en cours, un préréglage
+existant peut être remplacé.
+Cliquer sur un préréglage le rejoue : l'appareil est allumé au besoin, puis tous ses points de données
+partent en une seule commande.
+
+Les préréglages sont stockés hors du dépôt, dans `~/.config/smartlife-tray/presets.json`
+(ou sous `$XDG_CONFIG_HOME`), écrit de façon atomique.
+
+| Appareil | Points de données mémorisés |
+|----------|-----------------------------|
+| Climatiseur | marche, unité, mode, consigne, ventilation, panneau, éco, sommeil, affichage, séchage, santé |
+| Ampoule | marche, mode, luminosité, température de couleur, couleur, scène, ne pas déranger |
+
+La température ambiante et les minuteries restent de côté : ce sont des états transitoires, pas des réglages.
+Au rejeu d'un préréglage d'ampoule, seul le point de données du mode mémorisé est renvoyé (température de
+couleur, couleur ou scène), pour que la lampe ne rebascule pas dans un autre mode.
 
 ## Rafraîchissement adaptatif
 
