@@ -49,6 +49,9 @@ COMMAND_SETTLE_SECONDS = 0.8
 
 MONITOR_CALL_TIMEOUT_MS = 5000
 
+STATUS_NOTIFIER_WATCHER = "org.kde.StatusNotifierWatcher"
+INDICATOR_WAIT_TIMEOUT_SECONDS = 30
+
 DBUSMENU_MATCH_RULE = "interface='com.canonical.dbusmenu'"
 DBUSMENU_ACTIVITY_MEMBERS = ("AboutToShowGroup", "AboutToShow", "EventGroup")
 
@@ -483,13 +486,9 @@ class TrayApplication:
         self.presets = self.load_presets()
         self.updating_widgets = False
         self.busy = False
-        self.indicator = AppIndicator.Indicator.new(
-            APP_ID, ICON_FILE, AppIndicator.IndicatorCategory.HARDWARE
-        )
-        self.indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)
-        self.indicator.set_title(APP_TITLE)
-        if os.path.exists(ICON_FILE):
-            self.indicator.set_icon_full(ICON_FILE, APP_TITLE)
+        self.indicator = None
+        self.watcher_id = None
+        self.indicator_wait_source_id = None
         self.menu = Gtk.Menu()
         self.device_widgets = {}
         self.status_item = None
@@ -501,9 +500,51 @@ class TrayApplication:
         self.next_poll_time = None
         self.menu_active = False
         self.build_menu()
-        self.indicator.set_menu(self.menu)
+        self.wait_for_status_notifier_watcher()
         self.run_background(self.locate_and_refresh_all)
         self.start_menu_monitor()
+
+    def wait_for_status_notifier_watcher(self):
+        self.watcher_id = Gio.bus_watch_name(
+            Gio.BusType.SESSION,
+            STATUS_NOTIFIER_WATCHER,
+            Gio.BusNameWatcherFlags.NONE,
+            self.on_watcher_appeared,
+            None,
+        )
+        self.indicator_wait_source_id = GLib.timeout_add_seconds(
+            INDICATOR_WAIT_TIMEOUT_SECONDS, self.on_indicator_wait_expired
+        )
+
+    def on_watcher_appeared(self, connection, name, owner):
+        self.stop_waiting_for_watcher()
+        self.start_indicator()
+
+    def on_indicator_wait_expired(self):
+        self.indicator_wait_source_id = None
+        self.stop_waiting_for_watcher()
+        self.start_indicator()
+        return False
+
+    def stop_waiting_for_watcher(self):
+        if self.watcher_id is not None:
+            Gio.bus_unwatch_name(self.watcher_id)
+            self.watcher_id = None
+        if self.indicator_wait_source_id is not None:
+            GLib.source_remove(self.indicator_wait_source_id)
+            self.indicator_wait_source_id = None
+
+    def start_indicator(self):
+        if self.indicator is not None:
+            return
+        self.indicator = AppIndicator.Indicator.new(
+            APP_ID, ICON_FILE, AppIndicator.IndicatorCategory.HARDWARE
+        )
+        self.indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)
+        self.indicator.set_title(APP_TITLE)
+        if os.path.exists(ICON_FILE):
+            self.indicator.set_icon_full(ICON_FILE, APP_TITLE)
+        self.indicator.set_menu(self.menu)
 
     def load_devices(self):
         with open(DEVICES_FILE) as handle:
