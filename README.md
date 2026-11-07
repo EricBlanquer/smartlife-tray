@@ -1,6 +1,6 @@
 # SmartLife Tray
 
-Indicateur systray GTK pour piloter des appareils Tuya (SmartLife) **en local** et allumer la TV via Alexa.
+Indicateur systray GTK pour piloter des appareils Tuya (SmartLife) et une TV Samsung **en local**.
 
 Testé sous Linux Mint / Cinnamon, avec des climatiseurs et une ampoule connectée.
 
@@ -11,7 +11,7 @@ de connaître leur *local key*. Cette clé ne s'obtient que via l'API cloud Tuya
 une fois `devices.json` généré, le pilotage des appareils Tuya fonctionne sans Internet.
 
 Le cloud Tuya est requis pour ajouter un nouvel appareil.
-L'allumage de la TV via Alexa utilise Internet et le compte Amazon configuré dans `alexa-cmd`.
+La TV est allumée par Wake-on-LAN et éteinte par l'API de télécommande Samsung sur le réseau local.
 
 Les adresses IP ne sont jamais codées en dur : les appareils sont redécouverts à chaque démarrage en
 écoutant les broadcasts UDP qu'ils émettent sur le port 6667. Un changement de bail DHCP est sans effet.
@@ -26,7 +26,7 @@ Les adresses IP ne sont jamais codées en dur : les appareils sont redécouverts
 - Couleur, scènes et minuterie d'extinction des ampoules, mode ne pas déranger
 - Préréglages par appareil : capture de l'état courant, rejeu en un clic
 - Rafraîchissement automatique adaptatif, détection des appareils hors ligne
-- Allumage de la TV depuis **Télévision → Allumer avec Alexa**
+- TV Samsung : allumage par Wake-on-LAN, extinction et lecture de l'état par l'API locale
 
 Les commandes couvrent tous les points de données que les appareils acceptent réellement.
 Les fonctions déclarées par le cloud Tuya mais ignorées par le matériel sont volontairement absentes : mode musique, programmations horaires et mémoire d'état côté ampoule.
@@ -43,7 +43,7 @@ Deux points de données du climatiseur sont en revanche absents, car l'appareil 
 git clone https://github.com/EricBlanquer/smartlife-tray.git
 cd smartlife-tray
 python3 -m venv --system-site-packages venv
-venv/bin/pip install tinytuya
+venv/bin/pip install -r requirements.txt
 ```
 
 Le `--system-site-packages` est nécessaire : PyGObject (GTK) vient des paquets système, pas de pip.
@@ -51,7 +51,7 @@ Le `--system-site-packages` est nécessaire : PyGObject (GTK) vient des paquets 
 Dépendances système (Debian / Ubuntu / Mint) :
 
 ```bash
-sudo apt install gir1.2-ayatanaappindicator3-0.1 python3-gi
+sudo apt install gir1.2-ayatanaappindicator3-0.1 python3-gi iproute2
 ```
 
 ## Récupérer ses local keys
@@ -95,22 +95,50 @@ Icon=/chemin/vers/icons/smartlife-tray.svg
 Terminal=false
 ```
 
-## Télévision via Alexa
+## Télévision Samsung
 
-Le menu **Télévision → Allumer avec Alexa** envoie la commande « allume la télé »
-avec [alexa-cmd](https://github.com/EricBlanquer/alexa-cmd), sur l'appareil Alexa
-par défaut configuré dans cet outil.
-La TV doit déjà être pilotable par cette commande dans Alexa.
+Le sous-menu **Télévision** propose **Allumer** et **Éteindre**.
+L'état est lu sur l'API locale Samsung et rafraîchi avec les autres appareils.
+Quand la TV est allumée, le menu propose l'extinction.
+Quand elle annonce sa veille, il propose l'allumage.
+Si elle ne répond pas, l'état est inconnu et les deux actions restent disponibles.
 
-L'exécutable `alexa` est recherché dans le `PATH`, puis dans `~/alexa-cmd/alexa`,
-ce qui couvre aussi le démarrage automatique depuis le bureau.
-Les commandes Tuya restent disponibles si `alexa-cmd` n'est pas installé.
+Créer `~/.config/smartlife-tray/tv.json` (ou sous `$XDG_CONFIG_HOME`) :
 
-Si Amazon demande une reconnexion, `alexa-cmd` ouvre le navigateur pour s'authentifier.
-La commande tourne en arrière-plan, avec un délai maximal de six minutes, et le menu
-indique son envoi ou son échec.
-« Commande envoyée à Alexa » confirme l'envoi à Alexa, sans lecture de l'état réel de la TV.
-Une erreur affiche un message et permet de réessayer.
+```json
+{
+  "host": "192.0.2.10",
+  "mac": "02:11:22:33:44:55"
+}
+```
+
+Remplacer l'adresse et la MAC par celles de la TV, puis relancer l'application.
+Une réservation DHCP permet de conserver son adresse.
+Sans configuration valide, les commandes TV sont désactivées et les appareils Tuya restent utilisables.
+
+L'allumage envoie des rafales de dix paquets Wake-on-LAN sur chacun des ports UDP 9 et 7,
+depuis l'interface choisie par la route vers la TV et vers son adresse de broadcast réelle.
+Les rafales sont répétées jusqu'à confirmation de l'état allumé, pendant un maximum de 45 secondes.
+Activer l'allumage par un appareil mobile dans les paramètres réseau de la TV.
+L'extinction utilise la touche `KEY_POWER` via
+[samsungtvws](https://github.com/xchwarze/samsung-tv-ws-api), sur le port TLS 8002.
+L'état est vérifié avant la connexion et juste avant l'envoi : la touche n'est envoyée que si la TV est allumée.
+Lors de la première connexion, accepter **SmartLife** sur la TV si elle demande une autorisation.
+Le jeton d'appairage reste dans `~/.config/smartlife-tray/tv_token.txt`, avec les permissions `600`.
+
+Les commandes tournent en arrière-plan et leur résultat apparaît dans le menu.
+« Commande envoyée » confirme l'envoi, tandis que le titre du sous-menu affiche l'état lu sur la TV.
+Un échec affiche un message et permet de réessayer.
+
+## Tests
+
+```bash
+xvfb-run -a venv/bin/python -m unittest -v
+```
+
+Les tests vérifient les menus GTK, les erreurs réseau, les états inconnus, les permissions
+du jeton et les paquets WoL reçus par des sockets UDP locales.
+Ils ne commandent aucun appareil réel.
 
 ## Préréglages
 
