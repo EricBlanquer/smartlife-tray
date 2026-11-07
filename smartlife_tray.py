@@ -12,7 +12,9 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import socket
+import subprocess
 import threading
 import time
 import unicodedata
@@ -32,6 +34,10 @@ CONFIG_DIR = os.path.join(CONFIG_HOME, APP_ID)
 PRESETS_FILE = os.path.join(CONFIG_DIR, "presets.json")
 PRESETS_TEMP_FILE = PRESETS_FILE + ".tmp"
 PRESETS_INDENT = 2
+ALEXA_EXECUTABLE = "alexa"
+ALEXA_DEFAULT_PATH = os.path.join(os.path.expanduser("~"), "alexa-cmd", ALEXA_EXECUTABLE)
+ALEXA_TV_COMMAND = ("send", "allume", "la", "télé")
+ALEXA_COMMAND_TIMEOUT_SECONDS = 360
 
 UDP_PORT = 6667
 UDP_KEY = hashlib.md5(b"yGAdlopoPVldABfn").digest()
@@ -302,6 +308,23 @@ def colour_payload(hue):
     return f"{hue:04x}{COLOUR_SATURATION:04x}{COLOUR_VALUE:04x}"
 
 
+def turn_on_tv_with_alexa():
+    executable = shutil.which(ALEXA_EXECUTABLE)
+    if executable is None and os.access(ALEXA_DEFAULT_PATH, os.X_OK):
+        executable = ALEXA_DEFAULT_PATH
+    if executable is None:
+        raise FileNotFoundError("Alexa command not found. Install alexa-cmd first.")
+    subprocess.run(
+        [executable, *ALEXA_TV_COMMAND],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
+        timeout=ALEXA_COMMAND_TIMEOUT_SECONDS,
+    )
+
+
 class Device:
     def __init__(self, entry):
         self.id = entry["id"]
@@ -486,6 +509,7 @@ class TrayApplication:
         self.presets = self.load_presets()
         self.updating_widgets = False
         self.busy = False
+        self.alexa_busy = False
         self.indicator = None
         self.watcher_id = None
         self.indicator_wait_source_id = None
@@ -727,6 +751,9 @@ class TrayApplication:
 
         self.menu.append(Gtk.SeparatorMenuItem())
 
+        self.build_tv_menu()
+        self.menu.append(Gtk.SeparatorMenuItem())
+
         self.status_item = Gtk.MenuItem(label="")
         self.status_item.set_sensitive(False)
         self.menu.append(self.status_item)
@@ -740,6 +767,18 @@ class TrayApplication:
         self.menu.append(quit_item)
 
         self.menu.show_all()
+
+    def build_tv_menu(self):
+        root = Gtk.MenuItem(label="Télévision")
+        submenu = Gtk.Menu()
+        self.tv_power_item = Gtk.MenuItem(label="Allumer avec Alexa")
+        self.tv_power_item.connect("activate", self.on_tv_power_clicked)
+        submenu.append(self.tv_power_item)
+        self.tv_status_item = Gtk.MenuItem(label="Commande via Alexa")
+        self.tv_status_item.set_sensitive(False)
+        submenu.append(self.tv_status_item)
+        root.set_submenu(submenu)
+        self.menu.append(root)
 
     def build_presets_menu(self, submenu, widgets, device):
         root = Gtk.MenuItem(label="Préréglages")
@@ -1223,6 +1262,36 @@ class TrayApplication:
 
     def on_refresh_clicked(self, item):
         self.run_background(self.locate_and_refresh_all)
+
+    def on_tv_power_clicked(self, item):
+        if self.alexa_busy:
+            return
+        self.alexa_busy = True
+        self.tv_power_item.set_sensitive(False)
+        self.tv_status_item.set_label("Envoi à Alexa…")
+        self.run_background(self.send_tv_power)
+
+    def send_tv_power(self):
+        error = None
+        try:
+            turn_on_tv_with_alexa()
+        except subprocess.TimeoutExpired:
+            error = "Délai dépassé, vérifiez votre connexion à Amazon et réessayez."
+        except subprocess.CalledProcessError as ex:
+            error = (ex.stderr or "").strip() or (ex.stdout or "").strip() or str(ex)
+        except OSError as ex:
+            error = str(ex)
+        GLib.idle_add(self.finish_tv_power, error)
+
+    def finish_tv_power(self, error):
+        self.alexa_busy = False
+        self.tv_power_item.set_sensitive(True)
+        self.tv_status_item.set_label(
+            "Échec de la commande Alexa" if error else "Commande envoyée à Alexa"
+        )
+        if error:
+            self.report_error(f"Allumage de la TV impossible{NBSP}: {error}")
+        return False
 
     def on_quit_clicked(self, item):
         Gtk.main_quit()

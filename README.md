@@ -1,6 +1,6 @@
 # SmartLife Tray
 
-Indicateur systray GTK pour piloter des appareils Tuya (SmartLife) **en local**, sans passer par le cloud.
+Indicateur systray GTK pour piloter des appareils Tuya (SmartLife) **en local** et allumer la TV via Alexa.
 
 Testé sous Linux Mint / Cinnamon, avec des climatiseurs et une ampoule connectée.
 
@@ -8,9 +8,10 @@ Testé sous Linux Mint / Cinnamon, avec des climatiseurs et une ampoule connect�
 
 Les appareils Tuya acceptent les commandes directement sur le LAN (port 6668, protocole 3.3), à condition
 de connaître leur *local key*. Cette clé ne s'obtient que via l'API cloud Tuya, mais **une seule fois** :
-une fois `devices.json` généré, l'application ne contacte plus jamais Internet.
+une fois `devices.json` généré, le pilotage des appareils Tuya fonctionne sans Internet.
 
-Le cloud n'est donc requis que pour ajouter un nouvel appareil.
+Le cloud Tuya est requis pour ajouter un nouvel appareil.
+L'allumage de la TV via Alexa utilise Internet et le compte Amazon configuré dans `alexa-cmd`.
 
 Les adresses IP ne sont jamais codées en dur : les appareils sont redécouverts à chaque démarrage en
 écoutant les broadcasts UDP qu'ils émettent sur le port 6667. Un changement de bail DHCP est sans effet.
@@ -25,6 +26,7 @@ Les adresses IP ne sont jamais codées en dur : les appareils sont redécouverts
 - Couleur, scènes et minuterie d'extinction des ampoules, mode ne pas déranger
 - Préréglages par appareil : capture de l'état courant, rejeu en un clic
 - Rafraîchissement automatique adaptatif, détection des appareils hors ligne
+- Allumage de la TV depuis **Télévision → Allumer avec Alexa**
 
 Les commandes couvrent tous les points de données que les appareils acceptent réellement.
 Les fonctions déclarées par le cloud Tuya mais ignorées par le matériel sont volontairement absentes : mode musique, programmations horaires et mémoire d'état côté ampoule.
@@ -92,6 +94,23 @@ Exec=/chemin/vers/smartlife-tray
 Icon=/chemin/vers/icons/smartlife-tray.svg
 Terminal=false
 ```
+
+## Télévision via Alexa
+
+Le menu **Télévision → Allumer avec Alexa** envoie la commande « allume la télé »
+avec [alexa-cmd](https://github.com/EricBlanquer/alexa-cmd), sur l'appareil Alexa
+par défaut configuré dans cet outil.
+La TV doit déjà être pilotable par cette commande dans Alexa.
+
+L'exécutable `alexa` est recherché dans le `PATH`, puis dans `~/alexa-cmd/alexa`,
+ce qui couvre aussi le démarrage automatique depuis le bureau.
+Les commandes Tuya restent disponibles si `alexa-cmd` n'est pas installé.
+
+Si Amazon demande une reconnexion, `alexa-cmd` ouvre le navigateur pour s'authentifier.
+La commande tourne en arrière-plan, avec un délai maximal de six minutes, et le menu
+indique son envoi ou son échec.
+« Commande envoyée à Alexa » confirme l'envoi à Alexa, sans lecture de l'état réel de la TV.
+Une erreur affiche un message et permet de réessayer.
 
 ## Préréglages
 
