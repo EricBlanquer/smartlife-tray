@@ -11,8 +11,9 @@ from http import HTTPStatus
 from urllib.parse import urlsplit
 
 from app_paths import CONFIG_DIR
-from remote_layout import EXTRA_LAYOUT, PANEL_ACTION, POWER_ACTION, REMOTE_KEYS, REMOTE_LAYOUT
-from remote_skin import skin_file, web_skin
+from remote_keypad import KEYPAD, keypad_svg
+from remote_layout import PANEL_ACTION, POWER_ACTION, REMOTE_KEYS, REMOTE_LAYOUT
+from remote_skin import REMOTE_SKIN, skin_file
 from television import CONFIG_FILENAME, Television
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,6 +28,9 @@ KEY_PATH = "/api/key"
 POWER_PATH = "/api/power"
 SKIN_PATH = "/remote-skin.png"
 SKIN_CONTENT_TYPE = "image/png"
+KEYPAD_PATH = "/remote-keypad.svg"
+KEYPAD_CONTENT_TYPE = "image/svg+xml"
+KEYPAD_CONTENT = keypad_svg().encode("utf-8")
 STATIC_FILES = {
     "/": (os.path.join(WEB_DIR, "remote.html"), "text/html; charset=utf-8"),
     "/remote.css": (os.path.join(WEB_DIR, "remote.css"), "text/css; charset=utf-8"),
@@ -74,6 +78,8 @@ class RemoteRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_file(*STATIC_FILES[path])
         elif path == SKIN_PATH:
             self.send_skin()
+        elif path == KEYPAD_PATH:
+            self.send_body(HTTPStatus.OK, KEYPAD_CONTENT, KEYPAD_CONTENT_TYPE)
         else:
             self.send_json_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -88,13 +94,13 @@ class RemoteRequestHandler(http.server.BaseHTTPRequestHandler):
         return skin_file(self.server.tv.config_dir)
 
     def layout(self):
-        skin = {**web_skin(), "image": SKIN_PATH} if self.skin_path() else None
+        photo = self.skin_path() is not None
         return {
             "layout": REMOTE_LAYOUT,
-            "extra": EXTRA_LAYOUT,
             "power": POWER_ACTION,
             "panel": PANEL_ACTION,
-            "skin": skin,
+            "skin": REMOTE_SKIN.web(SKIN_PATH) if photo else None,
+            "keypad": KEYPAD.web(KEYPAD_PATH) if photo else None,
         }
 
     def do_POST(self):

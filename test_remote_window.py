@@ -7,9 +7,11 @@ from unittest.mock import Mock, patch
 
 import remote_window
 import smartlife_tray as tray
+from remote_keypad import KEYPAD, KEYPAD_HOTSPOTS, center
 from remote_layout import (
     ACTIONS,
-    EXTRA_LAYOUT,
+    DIGIT_ROWS,
+    KEYPAD_FUNCTION_ROWS,
     KEYS,
     LAYOUT_COLUMNS,
     PANEL_ACTION,
@@ -94,7 +96,7 @@ class RemoteLayoutTests(unittest.TestCase):
         return [cell for row in layout for cell in row if cell is not None]
 
     def test_grids_are_complete_and_keys_are_unique(self):
-        for layout in (REMOTE_LAYOUT, EXTRA_LAYOUT):
+        for layout in (REMOTE_LAYOUT, KEYPAD_FUNCTION_ROWS + DIGIT_ROWS):
             with self.subTest(layout=len(layout)):
                 self.assertTrue(all(len(row) == LAYOUT_COLUMNS for row in layout))
                 keys = [cell["key"] for cell in self.cells(layout)]
@@ -107,7 +109,7 @@ class RemoteLayoutTests(unittest.TestCase):
         self.assertEqual(grid_keys, set(KEYS) - {PANEL_ACTION})
 
     def test_every_key_is_reachable_with_the_photo(self):
-        reachable = {spot["key"] for spot in HOTSPOTS} | {cell["key"] for cell in self.cells(EXTRA_LAYOUT)}
+        reachable = {spot["key"] for spot in HOTSPOTS + KEYPAD_HOTSPOTS}
         self.assertEqual(reachable, set(KEYS))
 
     def test_shortcuts_are_valid_and_never_shared(self):
@@ -283,23 +285,26 @@ class SkinWindowTests(unittest.TestCase):
     def sent_keys(self):
         return [entry.args[0] for entry in self.tv.send_key.call_args_list]
 
-    def point(self, x, y):
-        return {"x": x * self.window.skin.scale_x, "y": y * self.window.skin.scale_y}
+    def point(self, x, y, view=None):
+        view = view or self.window.skin
+        return {"x": x * view.scale_x, "y": y * view.scale_y}
 
-    def press(self, x, y, **kwargs):
-        position = self.point(x, y)
-        return self.window.skin.on_button_press(self.window.skin, press_event(position["x"], position["y"], **kwargs))
+    def press(self, x, y, view=None, **kwargs):
+        view = view or self.window.skin
+        position = self.point(x, y, view)
+        return view.on_button_press(view, press_event(position["x"], position["y"], **kwargs))
 
-    def release(self, x, y):
-        position = self.point(x, y)
-        return self.window.skin.on_button_release(self.window.skin, press_event(position["x"], position["y"]))
+    def release(self, x, y, view=None):
+        view = view or self.window.skin
+        position = self.point(x, y, view)
+        return view.on_button_release(view, press_event(position["x"], position["y"]))
 
     def scroll(self, x, y, direction):
         return self.window.skin.on_scroll(self.window.skin, SimpleNamespace(**self.point(x, y), direction=direction))
 
-    def click(self, x, y):
-        self.press(x, y)
-        self.release(x, y)
+    def click(self, x, y, view=None):
+        self.press(x, y, view)
+        self.release(x, y, view)
 
     def test_photo_is_shown_reduced_without_margins(self):
         size = (round(SKIN_WIDTH * remote_window.SKIN_DISPLAY_SCALE), round(SKIN_HEIGHT * remote_window.SKIN_DISPLAY_SCALE))
@@ -312,8 +317,18 @@ class SkinWindowTests(unittest.TestCase):
     def test_photo_replaces_the_grid_and_hides_the_extra_keys(self):
         self.assertIsNotNone(self.window.skin)
         self.assertFalse(self.window.panel.get_reveal_child())
-        self.assertNotIn("KEY_UP", self.window.buttons)
-        self.assertIn("KEY_7", self.window.buttons)
+        self.assertEqual(self.window.buttons, {})
+        self.assertIs(self.window.panel.get_child(), self.window.keypad)
+
+    def test_drawn_keypad_sends_its_keys(self):
+        keypad = self.window.keypad
+        size = (round(KEYPAD.width * remote_window.SKIN_DISPLAY_SCALE), round(KEYPAD.height * remote_window.SKIN_DISPLAY_SCALE))
+        self.assertEqual((keypad.pixbuf.get_width(), keypad.pixbuf.get_height()), size)
+        for count, spot in enumerate(KEYPAD_HOTSPOTS, start=1):
+            self.click(*center(spot), view=keypad)
+            self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == count))
+        self.assertEqual(self.sent_keys(), [spot["key"] for spot in KEYPAD_HOTSPOTS])
+        self.assertFalse(self.press(5, 5, keypad))
 
     def test_hotspots_send_their_keys(self):
         for x, y in ((150, 273), (244, 366), (150, 459), (56, 366), (150, 366), (64, 520), (150, 544), (239, 520)):

@@ -232,19 +232,25 @@
     return path;
   }
 
-  function createSkin(skin) {
+  function createSkin(skin, label) {
     const svg = document.createElementNS(SVG_NS, 'svg');
     const image = document.createElementNS(SVG_NS, 'image');
     svg.setAttribute('viewBox', `0 0 ${skin.width} ${skin.height}`);
     svg.setAttribute('class', 'skin');
     svg.setAttribute('role', 'group');
-    svg.setAttribute('aria-label', 'Télécommande');
+    svg.setAttribute('aria-label', label);
     image.setAttribute('href', skin.image);
     image.setAttribute('width', skin.width);
     image.setAttribute('height', skin.height);
     svg.appendChild(image);
     skin.hotspots.forEach((spot) => svg.appendChild(createHotspot(spot)));
     return svg;
+  }
+
+  function mountSkin(container, skin, label) {
+    container.classList.add('has-skin');
+    container.style.setProperty('--skin-aspect', `${skin.width} / ${skin.height}`);
+    container.appendChild(createSkin(skin, label));
   }
 
   function registerShortcuts(layout) {
@@ -279,10 +285,8 @@
       actions.panel = layout.panel;
       registerShortcuts(layout.layout);
       if (layout.skin) {
-        remote.classList.add('has-skin');
-        remote.style.setProperty('--skin-aspect', `${layout.skin.width} / ${layout.skin.height}`);
-        remote.appendChild(createSkin(layout.skin));
-        fillGrid(panel, layout.extra);
+        mountSkin(remote, layout.skin, 'Télécommande');
+        mountSkin(panel, layout.keypad, 'Autres touches et chiffres');
       } else {
         remote.classList.add('pad');
         fillGrid(remote, layout.layout);

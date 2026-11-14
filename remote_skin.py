@@ -110,8 +110,34 @@ def contains(spot, x, y):
     return (angle - spot["start"]) % FULL_TURN_DEGREES < spot["end"] - spot["start"]
 
 
-def hotspot_at(x, y):
-    return next((spot for spot in HOTSPOTS if contains(spot, x, y)), None)
+class SkinGeometry:
+    def __init__(self, width, height, hotspots):
+        self.width = width
+        self.height = height
+        self.hotspots = hotspots
+
+    def hotspot_at(self, x, y):
+        return next((spot for spot in self.hotspots if contains(spot, x, y)), None)
+
+    def web(self, image):
+        return {
+            "width": self.width,
+            "height": self.height,
+            "image": image,
+            "hotspots": [
+                {
+                    "key": spot["key"],
+                    "title": spot["title"],
+                    "repeat": spot["repeat"],
+                    "wheel": spot["wheel"],
+                    "path": svg_path(spot),
+                }
+                for spot in self.hotspots
+            ],
+        }
+
+
+REMOTE_SKIN = SkinGeometry(SKIN_WIDTH, SKIN_HEIGHT, HOTSPOTS)
 
 
 def polar(spot, radius, degrees):
@@ -172,19 +198,3 @@ def trace(context, spot):
         context.arc_negative(spot["cx"], spot["cy"], spot["inner"], end, start)
     context.close_path()
 
-
-def web_skin():
-    return {
-        "width": SKIN_WIDTH,
-        "height": SKIN_HEIGHT,
-        "hotspots": [
-            {
-                "key": spot["key"],
-                "title": spot["title"],
-                "repeat": spot["repeat"],
-                "wheel": spot["wheel"],
-                "path": svg_path(spot),
-            }
-            for spot in HOTSPOTS
-        ],
-    }

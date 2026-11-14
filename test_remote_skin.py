@@ -44,7 +44,7 @@ class SkinGeometryTests(unittest.TestCase):
     def test_hotspots_match_the_calibrated_keys(self):
         for (x, y), key in PROBES.items():
             with self.subTest(point=(x, y)):
-                spot = remote_skin.hotspot_at(x, y)
+                spot = remote_skin.REMOTE_SKIN.hotspot_at(x, y)
                 self.assertEqual(spot["key"] if spot else None, key)
 
     def test_ring_sectors_split_on_the_diagonals(self):
@@ -55,19 +55,21 @@ class SkinGeometryTests(unittest.TestCase):
             (44, "KEY_RIGHT"), (46, "KEY_DOWN"), (134, "KEY_DOWN"), (136, "KEY_LEFT"), (224, "KEY_LEFT"),
         ):
             with self.subTest(degrees=degrees):
-                self.assertEqual(remote_skin.hotspot_at(*remote_skin.polar(ring, radius, degrees))["key"], key)
+                self.assertEqual(remote_skin.REMOTE_SKIN.hotspot_at(*remote_skin.polar(ring, radius, degrees))["key"], key)
         for distance, key in (
             (remote_skin.DPAD_INNER_RADIUS - 1, "KEY_ENTER"),
             (remote_skin.DPAD_INNER_RADIUS + 1, "KEY_UP"),
             (remote_skin.DPAD_OUTER_RADIUS + 2, None),
         ):
             with self.subTest(distance=distance):
-                spot = remote_skin.hotspot_at(*remote_skin.polar(ring, distance, 270))
+                spot = remote_skin.REMOTE_SKIN.hotspot_at(*remote_skin.polar(ring, distance, 270))
                 self.assertEqual(spot["key"] if spot else None, key)
 
     def test_svg_paths_are_closed_and_cover_every_hotspot(self):
-        skin = remote_skin.web_skin()
-        self.assertEqual((skin["width"], skin["height"]), (remote_skin.SKIN_WIDTH, remote_skin.SKIN_HEIGHT))
+        skin = remote_skin.REMOTE_SKIN.web("/photo.png")
+        self.assertEqual(
+            (skin["width"], skin["height"], skin["image"]), (remote_skin.SKIN_WIDTH, remote_skin.SKIN_HEIGHT, "/photo.png")
+        )
         self.assertEqual([spot["key"] for spot in skin["hotspots"]], [spot["key"] for spot in remote_skin.HOTSPOTS])
         for spot in skin["hotspots"]:
             with self.subTest(key=spot["key"]):

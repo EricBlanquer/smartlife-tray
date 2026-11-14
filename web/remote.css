@@ -87,15 +87,10 @@ body {
   max-width: 420px;
 }
 
-.remote-view.has-skin {
+.has-skin {
   --page-chrome: 140px;
-  flex-basis: 300px;
+  flex: 1 1 300px;
   max-width: clamp(220px, calc((100svh - var(--page-chrome)) * var(--skin-aspect)), 340px);
-}
-
-.panel {
-  flex: 1 1 280px;
-  max-width: 420px;
 }
 
 .pad {

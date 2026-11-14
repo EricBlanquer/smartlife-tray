@@ -4,13 +4,15 @@ import socket
 import tempfile
 import threading
 import unittest
+import xml.etree.ElementTree as ElementTree
 from unittest.mock import Mock, patch
 
 import tv_remote_server as server_module
 from PIL import Image
 
-from remote_layout import EXTRA_LAYOUT, PANEL_ACTION, POWER_ACTION, REMOTE_LAYOUT
-from remote_skin import SKIN_FILENAME, SKIN_HEIGHT, SKIN_WIDTH, web_skin
+from remote_keypad import KEYPAD
+from remote_layout import PANEL_ACTION, POWER_ACTION, REMOTE_LAYOUT
+from remote_skin import REMOTE_SKIN, SKIN_FILENAME, SKIN_HEIGHT, SKIN_WIDTH
 
 LOCALHOST = "127.0.0.1"
 JSON_HEADERS = {"Content-Type": "application/json"}
@@ -80,10 +82,10 @@ class RemoteServerTests(unittest.TestCase):
         response, body = self.request("GET", "/api/layout")
         self.assertEqual(json.loads(body), json.loads(json.dumps({
             "layout": REMOTE_LAYOUT,
-            "extra": EXTRA_LAYOUT,
             "power": POWER_ACTION,
             "panel": PANEL_ACTION,
             "skin": None,
+            "keypad": None,
         })))
         self.tv.refresh.side_effect = lambda: setattr(self.tv, "is_on", None)
         response, body = self.request("GET", "/api/state?ignored=1")
@@ -196,12 +198,20 @@ class RemoteServerTests(unittest.TestCase):
         self.assertEqual((response.status, response.getheader("Content-Type")), (200, "image/png"))
         self.assertTrue(body.startswith(b"\x89PNG"))
         response, body = self.request("GET", "/api/layout")
-        self.assertEqual(json.loads(body)["skin"], json.loads(json.dumps({**web_skin(), "image": "/remote-skin.png"})))
+        layout = json.loads(body)
+        self.assertEqual(layout["skin"], json.loads(json.dumps(REMOTE_SKIN.web("/remote-skin.png"))))
+        self.assertEqual(layout["keypad"], json.loads(json.dumps(KEYPAD.web("/remote-keypad.svg"))))
         Image.new("RGBA", (SKIN_WIDTH, SKIN_HEIGHT + 1)).save(f"{self.config.name}/{SKIN_FILENAME}", "PNG")
         response, body = self.request("GET", "/api/layout")
         self.assertIsNone(json.loads(body)["skin"])
+        self.assertIsNone(json.loads(body)["keypad"])
         response, _ = self.request("GET", "/remote-skin.png")
         self.assertEqual(response.status, 404)
+
+    def test_keypad_drawing_is_served_as_svg(self):
+        response, body = self.request("GET", "/remote-keypad.svg")
+        self.assertEqual((response.status, response.getheader("Content-Type")), (200, "image/svg+xml"))
+        self.assertEqual(ElementTree.fromstring(body).tag, "{http://www.w3.org/2000/svg}svg")
 
     def test_unknown_post_path_is_not_found(self):
         response, _ = self.post("/api/other", {})

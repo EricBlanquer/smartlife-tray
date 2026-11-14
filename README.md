@@ -155,7 +155,10 @@ accueil, lecture/pause, bascules VOL et CH.
 Comme sur la vraie télécommande, chaque bascule a trois zones : au-dessus de la barre pour monter,
 au-dessous pour descendre, et la barre elle-même pour l'appui, qui coupe ou rétablit le son (VOL) ou ouvre
 le guide des programmes (CH) ; la molette de la souris règle le volume ou change de chaîne.
-**123** ouvre le panneau des autres touches et des chiffres ; le micro et les pastilles de couleur restent inertes.
+**123** ouvre à côté un pavé assorti, en aluminium brossé, avec les autres touches et les chiffres ; le micro et
+les pastilles de couleur restent inertes.
+Ce pavé est dessiné en SVG par `remote_keypad.py` d'après `KEYPAD_FUNCTION_ROWS` et `DIGIT_ROWS`, et la page web
+le reçoit sur `/remote-keypad.svg`.
 
 La fenêtre affiche la photo réduite (`SKIN_DISPLAY_SCALE`), sans marge.
 L'état (connexion, échec, commande marche/arrêt) apparaît dans un bandeau sur le bas de la photo, qui laisse

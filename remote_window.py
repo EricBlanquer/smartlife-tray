@@ -9,8 +9,8 @@ gi.require_version("Gtk", "3.0")
 
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
 
+from remote_keypad import KEYPAD, keypad_svg
 from remote_layout import (
-    EXTRA_LAYOUT,
     KEYS,
     PANEL_ACTION,
     POWER_ACTION,
@@ -18,7 +18,7 @@ from remote_layout import (
     STYLE_ACCENT,
     STYLE_POWER,
 )
-from remote_skin import SKIN_HEIGHT, SKIN_WIDTH, hotspot_at, trace
+from remote_skin import REMOTE_SKIN, trace
 
 WINDOW_TITLE = "Télécommande"
 NBSP = " "
@@ -29,6 +29,7 @@ GRID_SPACING = 6
 BUTTON_WIDTH = 76
 BUTTON_HEIGHT = 44
 SKIN_DISPLAY_SCALE = 0.65
+SVG_LOADER = "svg"
 TOAST_MARGIN = 8
 TOAST_MAX_WIDTH_CHARS = 20
 TOAST_HIDE_DELAY_MS = 5000
@@ -72,16 +73,34 @@ def remove_source(source_id):
     return None
 
 
+def display_size(geometry):
+    return round(geometry.width * SKIN_DISPLAY_SCALE), round(geometry.height * SKIN_DISPLAY_SCALE)
+
+
+def load_photo(path, geometry):
+    return GdkPixbuf.Pixbuf.new_from_file(path).scale_simple(
+        *display_size(geometry), GdkPixbuf.InterpType.HYPER
+    )
+
+
+def load_svg(data, geometry):
+    loader = GdkPixbuf.PixbufLoader.new_with_type(SVG_LOADER)
+    loader.set_size(*display_size(geometry))
+    try:
+        loader.write(data)
+    finally:
+        loader.close()
+    return loader.get_pixbuf()
+
+
 class SkinView(Gtk.DrawingArea):
-    def __init__(self, path, on_press, on_release, on_wheel):
+    def __init__(self, pixbuf, geometry, on_press, on_release, on_wheel):
         super().__init__()
-        width = round(SKIN_WIDTH * SKIN_DISPLAY_SCALE)
-        height = round(SKIN_HEIGHT * SKIN_DISPLAY_SCALE)
-        self.pixbuf = GdkPixbuf.Pixbuf.new_from_file(path).scale_simple(
-            width, height, GdkPixbuf.InterpType.HYPER
-        )
-        self.scale_x = width / SKIN_WIDTH
-        self.scale_y = height / SKIN_HEIGHT
+        self.pixbuf = pixbuf
+        self.geometry = geometry
+        width, height = pixbuf.get_width(), pixbuf.get_height()
+        self.scale_x = width / geometry.width
+        self.scale_y = height / geometry.height
         self.on_press = on_press
         self.on_release = on_release
         self.on_wheel = on_wheel
@@ -116,7 +135,7 @@ class SkinView(Gtk.DrawingArea):
         return False
 
     def spot_at(self, x, y):
-        return hotspot_at(x / self.scale_x, y / self.scale_y)
+        return self.geometry.hotspot_at(x / self.scale_x, y / self.scale_y)
 
     def set_hovered(self, spot):
         if spot is self.hovered:
@@ -192,8 +211,8 @@ class RemoteWindow(Gtk.Window):
         self.status_label.set_line_wrap(True)
         self.toast_source_id = None
         self.panel = None
-        self.skin = self.load_skin(skin_path)
-        content = self.create_grid_view() if self.skin is None else self.create_skin_view()
+        self.skin, self.keypad = self.load_views(skin_path)
+        content = self.create_grid_view() if self.skin is None else self.create_photo_view()
         content.show_all()
         self.add(content)
         self.place_in_bottom_right_corner()
@@ -205,13 +224,18 @@ class RemoteWindow(Gtk.Window):
         self.worker.start()
         self.show_all()
 
-    def load_skin(self, skin_path):
+    def load_views(self, skin_path):
         if skin_path is None:
-            return None
+            return None, None
         try:
-            return SkinView(skin_path, self.on_hotspot_pressed, self.stop_repeat, self.queue_key)
+            photo = load_photo(skin_path, REMOTE_SKIN)
+            keypad = load_svg(keypad_svg().encode(), KEYPAD)
         except GLib.Error:
-            return None
+            return None, None
+        return self.create_view(photo, REMOTE_SKIN), self.create_view(keypad, KEYPAD)
+
+    def create_view(self, pixbuf, geometry):
+        return SkinView(pixbuf, geometry, self.on_hotspot_pressed, self.stop_repeat, self.queue_key)
 
     def place_in_bottom_right_corner(self):
         display = self.get_display()
@@ -229,16 +253,14 @@ class RemoteWindow(Gtk.Window):
         box.pack_start(self.status_label, False, False, 0)
         return box
 
-    def create_skin_view(self):
+    def create_photo_view(self):
         self.style_toast()
         overlay = Gtk.Overlay()
         overlay.add(self.skin)
         overlay.add_overlay(self.status_label)
         overlay.set_overlay_pass_through(self.status_label, True)
-        grid = self.create_grid(EXTRA_LAYOUT)
-        grid.set_border_width(BORDER_WIDTH)
         self.panel = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_RIGHT)
-        self.panel.add(grid)
+        self.panel.add(self.keypad)
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         box.pack_start(overlay, False, False, 0)
         box.pack_start(self.panel, False, False, 0)
