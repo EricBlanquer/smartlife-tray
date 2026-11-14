@@ -156,7 +156,10 @@ Ses touches sont cliquables : marche/arrêt, anneau directionnel et OK, retour, 
 bascules VOL et CH.
 Comme sur la vraie télécommande, chaque bascule a trois zones : au-dessus de la barre pour monter,
 au-dessous pour descendre, et la barre elle-même pour l'appui, qui coupe ou rétablit le son (VOL) ou ouvre
-le guide des programmes (CH) ; la molette de la souris règle le volume ou change de chaîne.
+le guide des programmes (CH).
+La molette de la souris règle le volume, ou change de chaîne quand le pointeur est sur la bascule CH.
+Tant que la fenêtre a le focus, elle est réservée sur tout l'écran (`global_wheel.py`, python-xlib) et règle le
+volume même hors de la télécommande ; cliquer dans une autre fenêtre lui rend son défilement.
 **123** affiche ou masque, sur le manche de la télécommande au-dessus du logo, un pavé avec les autres touches et
 les chiffres.
 Tant que la fenêtre est ancrée au coin inférieur droit, son manche est masqué (coupe à `KEY_PANEL_BOTTOM`) et la

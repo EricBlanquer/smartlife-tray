@@ -11,6 +11,7 @@ gi.require_version("Gtk", "3.0")
 
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
 
+from global_wheel import GlobalWheel
 from remote_keypad import KEYPAD, keypad_svg
 from remote_layout import (
     KEYS,
@@ -86,10 +87,15 @@ STYLE_CLASSES = {
     STYLE_ACCENT: Gtk.STYLE_CLASS_SUGGESTED_ACTION,
 }
 WHEEL_INDEXES = {Gdk.ScrollDirection.UP: 0, Gdk.ScrollDirection.DOWN: 1}
+VOLUME_WHEEL = ("KEY_VOLUP", "KEY_VOLDOWN")
 
 
 def is_primary_press(event):
     return event.type == Gdk.EventType.BUTTON_PRESS and event.button == Gdk.BUTTON_PRIMARY
+
+
+def rocker_key(spot, index):
+    return spot["wheel"][index] if spot is not None and spot["wheel"] else None
 
 
 def add_css(widget, css, style_class):
@@ -237,12 +243,16 @@ class SkinView(Gtk.DrawingArea):
         return True
 
     def on_scroll(self, widget, event):
-        spot = self.spot_at(event.x, event.y)
         index = WHEEL_INDEXES.get(event.direction)
-        if spot is None or spot["wheel"] is None or index is None:
+        key = None if index is None else rocker_key(self.spot_at(event.x, event.y), index)
+        if key is None:
             return False
-        self.on_wheel(spot["wheel"][index])
+        self.on_wheel(key)
         return True
+
+    def contains_point(self, x, y):
+        allocation = self.get_allocation()
+        return 0 <= x < allocation.width and 0 <= y < allocation.height
 
     def on_query_tooltip(self, widget, x, y, keyboard_mode, tooltip):
         spot = self.spot_at(x, y)
@@ -280,8 +290,12 @@ class RemoteWindow(Gtk.Window):
         content.show_all()
         self.add(content)
         self.place_in_bottom_right_corner()
+        self.global_wheel = GlobalWheel(self.on_global_wheel)
+        self.add_events(Gdk.EventMask.SCROLL_MASK)
+        self.connect("scroll-event", self.on_scroll)
         self.connect("key-press-event", self.on_key_press)
         self.connect("key-release-event", self.on_key_release)
+        self.connect("focus-in-event", self.on_focus_in)
         self.connect("focus-out-event", self.on_focus_out)
         self.connect("destroy", self.on_destroy)
         self.worker = threading.Thread(target=self.send_keys, daemon=True)
@@ -524,10 +538,35 @@ class RemoteWindow(Gtk.Window):
         self.pressed_keyvals.discard(Gdk.keyval_to_lower(event.keyval))
         return False
 
+    def on_focus_in(self, window, event):
+        self.global_wheel.grab()
+        return False
+
     def on_focus_out(self, window, event):
+        self.global_wheel.release()
         self.pressed_keyvals.clear()
         self.stop_repeat()
         return False
+
+    def on_scroll(self, window, event):
+        index = WHEEL_INDEXES.get(event.direction)
+        if index is None:
+            return False
+        self.queue_key(VOLUME_WHEEL[index])
+        return True
+
+    def on_global_wheel(self, index, root_x, root_y):
+        self.queue_key(self.rocker_key_at(index, root_x, root_y) or VOLUME_WHEEL[index])
+
+    def rocker_key_at(self, index, root_x, root_y):
+        skin_window = self.skin.get_window() if self.skin is not None else None
+        if skin_window is None:
+            return None
+        _, origin_x, origin_y = skin_window.get_origin()
+        x, y = root_x - origin_x, root_y - origin_y
+        if not self.skin.contains_point(x, y):
+            return None
+        return rocker_key(self.skin.spot_at(x, y), index)
 
     def queue_key(self, key):
         try:
@@ -580,6 +619,7 @@ class RemoteWindow(Gtk.Window):
 
     def on_destroy(self, window):
         self.closed = True
+        self.global_wheel.release()
         self.stop_repeat()
         self.toast_source_id = remove_source(self.toast_source_id)
         self.dock_source_id = remove_source(self.dock_source_id)

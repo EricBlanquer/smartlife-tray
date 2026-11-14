@@ -505,6 +505,33 @@ class SkinWindowTests(unittest.TestCase):
             "KEY_VOLUP", "KEY_VOLDOWN", "KEY_VOLUP", "KEY_CHUP", "KEY_CHDOWN", "KEY_CHDOWN",
         ])
 
+    def test_wheel_off_the_rockers_changes_the_volume(self):
+        for direction in (Gdk.ScrollDirection.UP, Gdk.ScrollDirection.DOWN):
+            self.assertTrue(self.window.on_scroll(self.window, SimpleNamespace(direction=direction)))
+        self.assertFalse(self.window.on_scroll(self.window, SimpleNamespace(direction=Gdk.ScrollDirection.SMOOTH)))
+        self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 2))
+        self.assertEqual(self.sent_keys(), ["KEY_VOLUP", "KEY_VOLDOWN"])
+
+    def test_wheel_is_captured_on_the_whole_screen_while_focused(self):
+        wheel = Mock()
+        self.window.global_wheel = wheel
+        self.window.on_focus_in(self.window, None)
+        wheel.grab.assert_called_once_with()
+        self.window.on_focus_out(self.window, None)
+        wheel.release.assert_called_once_with()
+        self.window.destroy()
+        self.assertEqual(wheel.release.call_count, 2)
+
+    def test_captured_wheel_follows_the_rocker_under_the_pointer(self):
+        self.assertTrue(wait_until(lambda: self.window.skin.get_window() is not None))
+        _, origin_x, origin_y = self.window.skin.get_window().get_origin()
+        channel = self.point(240, 640)
+        self.window.on_global_wheel(0, origin_x + round(channel["x"]), origin_y + round(channel["y"]))
+        self.window.on_global_wheel(1, origin_x + 2000, origin_y + 2000)
+        self.window.on_global_wheel(0, origin_x + round(self.point(170, 372)["x"]), origin_y + round(self.point(170, 372)["y"]))
+        self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 3))
+        self.assertEqual(self.sent_keys(), ["KEY_CHUP", "KEY_VOLDOWN", "KEY_VOLUP"])
+
     def test_held_volume_hotspot_repeats_until_release(self):
         with (
             patch.object(remote_window, "REPEAT_DELAY_MS", 20),
