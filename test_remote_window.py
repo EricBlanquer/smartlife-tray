@@ -20,7 +20,7 @@ from remote_layout import (
     REMOTE_KEYS,
     REMOTE_LAYOUT,
 )
-from remote_skin import HOTSPOTS, SKIN_FILENAME, SKIN_HEIGHT, SKIN_WIDTH
+from remote_skin import HOTSPOTS, SKIN_HEIGHT, SKIN_WIDTH
 from remote_window import Gdk, GLib, RemoteWindow
 
 WAIT_SECONDS = 2
@@ -48,7 +48,7 @@ def key_event(name, state=0):
 
 
 def make_skin(directory):
-    path = os.path.join(directory, SKIN_FILENAME)
+    path = os.path.join(directory, "remote-skin.png")
     remote_window.GdkPixbuf.Pixbuf.new(
         remote_window.GdkPixbuf.Colorspace.RGB, True, 8, SKIN_WIDTH, SKIN_HEIGHT
     ).savev(path, "png", [], [])
@@ -322,7 +322,7 @@ class SkinWindowTests(unittest.TestCase):
 
     def test_drawn_keypad_sends_its_keys(self):
         keypad = self.window.keypad
-        size = (round(KEYPAD.width * remote_window.SKIN_DISPLAY_SCALE), round(KEYPAD.height * remote_window.SKIN_DISPLAY_SCALE))
+        size = (round(KEYPAD.width * remote_window.KEYPAD_DISPLAY_SCALE), round(KEYPAD.height * remote_window.KEYPAD_DISPLAY_SCALE))
         self.assertEqual((keypad.pixbuf.get_width(), keypad.pixbuf.get_height()), size)
         for count, spot in enumerate(KEYPAD_HOTSPOTS, start=1):
             self.click(*center(spot), view=keypad)
@@ -331,7 +331,7 @@ class SkinWindowTests(unittest.TestCase):
         self.assertIsNone(KEYPAD.hotspot_at(5, 5))
 
     def test_hotspots_send_their_keys(self):
-        for x, y in ((150, 273), (244, 366), (150, 459), (56, 366), (150, 366), (64, 520), (150, 544), (239, 520)):
+        for x, y in ((170, 272), (270, 372), (170, 472), (70, 372), (170, 372), (70, 551), (170, 580), (270, 550)):
             self.click(x, y)
         self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 8))
         self.assertEqual(self.sent_keys(), [
@@ -343,27 +343,27 @@ class SkinWindowTests(unittest.TestCase):
             patch.object(remote_window, "REPEAT_DELAY_MS", 20),
             patch.object(remote_window, "REPEAT_INTERVAL_MS", 10),
         ):
-            self.press(91, 632)
+            self.press(100, 673)
             time.sleep(0.08)
             drain_events()
-            self.release(91, 632)
-            self.click(212, 632)
+            self.release(100, 673)
+            self.click(240, 673)
         self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 2))
         self.assertEqual(self.sent_keys(), ["KEY_MUTE", "KEY_GUIDE"])
 
     def test_power_and_123_hotspots_trigger_their_actions(self):
-        self.click(74, 52)
+        self.click(77, 60)
         self.on_power.assert_called_once_with()
-        self.click(60, 219)
+        self.click(70, 196)
         self.assertTrue(self.window.panel.get_reveal_child())
-        self.click(60, 219)
+        self.click(70, 196)
         self.assertFalse(self.window.panel.get_reveal_child())
         drain_events()
         self.tv.send_key.assert_not_called()
 
     def test_inert_areas_and_other_buttons_do_nothing(self):
         with patch.object(self.window, "begin_move_drag"), patch.object(self.window.context_menu, "popup_at_pointer"):
-            for x, y in ((150, 175), (244, 212), (5, 5)):
+            for x, y in ((170, 225), (300, 120), (5, 5)):
                 self.assertFalse(self.press(x, y, button=Gdk.BUTTON_MIDDLE))
                 self.assertFalse(self.press(x, y, event_type=Gdk.EventType._2BUTTON_PRESS))
         drain_events()
@@ -374,9 +374,9 @@ class SkinWindowTests(unittest.TestCase):
 
     def test_dragging_outside_the_keys_moves_the_window(self):
         with patch.object(self.window, "begin_move_drag") as move:
-            self.assertTrue(self.press(150, 175))
+            self.assertTrue(self.press(170, 225))
             self.assertTrue(self.press(5, 5, self.window.keypad))
-        position = self.point(150, 175)
+        position = self.point(170, 225)
         self.assertEqual(move.call_args_list[0].args, (Gdk.BUTTON_PRIMARY, int(position["x"] + 1000.5), int(position["y"] + 500.5), 42))
         self.assertEqual(move.call_count, 2)
         self.assertIsNone(self.window.skin.pressed)
@@ -385,7 +385,7 @@ class SkinWindowTests(unittest.TestCase):
 
     def test_right_click_offers_to_close_the_remote(self):
         with patch.object(self.window.context_menu, "popup_at_pointer") as popup:
-            self.assertTrue(self.press(150, 366, button=Gdk.BUTTON_SECONDARY))
+            self.assertTrue(self.press(170, 372, button=Gdk.BUTTON_SECONDARY))
             self.assertTrue(self.press(5, 5, self.window.keypad, button=Gdk.BUTTON_SECONDARY))
         self.assertEqual(popup.call_count, 2)
         items = self.window.context_menu.get_children()
@@ -397,11 +397,11 @@ class SkinWindowTests(unittest.TestCase):
 
     def test_wheel_over_volume_and_channels(self):
         for x, y, direction in (
-            (91, 612, Gdk.ScrollDirection.UP), (91, 662, Gdk.ScrollDirection.DOWN), (91, 632, Gdk.ScrollDirection.UP),
-            (212, 662, Gdk.ScrollDirection.UP), (212, 612, Gdk.ScrollDirection.DOWN), (212, 632, Gdk.ScrollDirection.DOWN),
+            (100, 640, Gdk.ScrollDirection.UP), (100, 710, Gdk.ScrollDirection.DOWN), (100, 673, Gdk.ScrollDirection.UP),
+            (240, 710, Gdk.ScrollDirection.UP), (240, 640, Gdk.ScrollDirection.DOWN), (240, 673, Gdk.ScrollDirection.DOWN),
         ):
             self.assertTrue(self.scroll(x, y, direction))
-        self.assertFalse(self.scroll(150, 366, Gdk.ScrollDirection.UP))
+        self.assertFalse(self.scroll(170, 372, Gdk.ScrollDirection.UP))
         self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 6))
         self.assertEqual(self.sent_keys(), [
             "KEY_VOLUP", "KEY_VOLDOWN", "KEY_VOLUP", "KEY_CHUP", "KEY_CHDOWN", "KEY_CHDOWN",
@@ -412,24 +412,24 @@ class SkinWindowTests(unittest.TestCase):
             patch.object(remote_window, "REPEAT_DELAY_MS", 20),
             patch.object(remote_window, "REPEAT_INTERVAL_MS", 10),
         ):
-            self.press(91, 612)
+            self.press(100, 640)
             self.assertIsNotNone(self.window.skin.pressed)
             self.assertTrue(wait_until(lambda: self.tv.send_key.call_count >= 4))
-            self.release(91, 612)
+            self.release(100, 640)
         self.assertIsNone(self.window.repeat_source_id)
         self.assertIsNone(self.window.skin.pressed)
         self.assertEqual(set(self.sent_keys()), {"KEY_VOLUP"})
 
     def test_hover_and_tooltip_follow_the_hotspots(self):
         tooltip = Mock()
-        self.window.skin.on_motion(self.window.skin, SimpleNamespace(**self.point(150, 544)))
+        self.window.skin.on_motion(self.window.skin, SimpleNamespace(**self.point(170, 580)))
         self.assertEqual(self.window.skin.hovered["key"], "KEY_HOME")
-        home = self.point(150, 544)
+        home = self.point(170, 580)
         self.assertTrue(self.window.skin.on_query_tooltip(self.window.skin, home["x"], home["y"], False, tooltip))
         tooltip.set_text.assert_called_once_with("Accueil")
         self.window.skin.on_leave(self.window.skin, None)
         self.assertIsNone(self.window.skin.hovered)
-        inert = self.point(150, 175)
+        inert = self.point(170, 225)
         self.assertFalse(self.window.skin.on_query_tooltip(self.window.skin, inert["x"], inert["y"], False, tooltip))
 
     def test_status_appears_over_the_photo_only_when_useful(self):
@@ -525,7 +525,7 @@ class TrayRemoteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             self.skin_file.return_value = make_skin(directory)
             self.app.tv_remote_item.activate()
-            self.skin_file.assert_called_once_with(tray.CONFIG_DIR)
+            self.skin_file.assert_called_once_with()
             self.assertIsNotNone(self.app.remote_window.skin)
 
     def test_remote_item_requires_a_configured_tv(self):

@@ -12,7 +12,8 @@ from PIL import Image
 
 from remote_keypad import KEYPAD
 from remote_layout import PANEL_ACTION, POWER_ACTION, REMOTE_LAYOUT
-from remote_skin import REMOTE_SKIN, SKIN_FILENAME, SKIN_HEIGHT, SKIN_WIDTH
+import remote_skin
+from remote_skin import REMOTE_SKIN, SKIN_HEIGHT, SKIN_WIDTH
 
 LOCALHOST = "127.0.0.1"
 JSON_HEADERS = {"Content-Type": "application/json"}
@@ -25,6 +26,10 @@ class RemoteServerTests(unittest.TestCase):
         self.tv = Mock()
         self.tv.is_on = True
         self.tv.config_dir = self.config.name
+        self.skin_path = f"{self.config.name}/remote-skin.png"
+        skin = patch.object(remote_skin, "SKIN_FILE", self.skin_path)
+        skin.start()
+        self.addCleanup(skin.stop)
         self.server = server_module.RemoteServer((LOCALHOST, 0), self.tv, ["remote.lan"])
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, args=(0.01,), daemon=True)
@@ -190,10 +195,11 @@ class RemoteServerTests(unittest.TestCase):
         response, _ = self.post("/api/power", {})
         self.assertEqual(response.status, 200)
 
-    def test_photo_is_offered_only_once_prepared(self):
+    def test_photo_is_offered_only_when_usable(self):
+        skin_path = self.skin_path
         response, _ = self.request("GET", "/remote-skin.png")
         self.assertEqual(response.status, 404)
-        Image.new("RGBA", (SKIN_WIDTH, SKIN_HEIGHT)).save(f"{self.config.name}/{SKIN_FILENAME}", "PNG")
+        Image.new("RGBA", (SKIN_WIDTH, SKIN_HEIGHT)).save(skin_path, "PNG")
         response, body = self.request("GET", "/remote-skin.png")
         self.assertEqual((response.status, response.getheader("Content-Type")), (200, "image/png"))
         self.assertTrue(body.startswith(b"\x89PNG"))
@@ -201,7 +207,7 @@ class RemoteServerTests(unittest.TestCase):
         layout = json.loads(body)
         self.assertEqual(layout["skin"], json.loads(json.dumps(REMOTE_SKIN.web("/remote-skin.png"))))
         self.assertEqual(layout["keypad"], json.loads(json.dumps(KEYPAD.web("/remote-keypad.svg"))))
-        Image.new("RGBA", (SKIN_WIDTH, SKIN_HEIGHT + 1)).save(f"{self.config.name}/{SKIN_FILENAME}", "PNG")
+        Image.new("RGBA", (SKIN_WIDTH, SKIN_HEIGHT + 1)).save(skin_path, "PNG")
         response, body = self.request("GET", "/api/layout")
         self.assertIsNone(json.loads(body)["skin"])
         self.assertIsNone(json.loads(body)["keypad"])

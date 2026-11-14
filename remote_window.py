@@ -29,7 +29,8 @@ BORDER_WIDTH = 12
 GRID_SPACING = 6
 BUTTON_WIDTH = 76
 BUTTON_HEIGHT = 44
-SKIN_DISPLAY_SCALE = 0.65
+SKIN_DISPLAY_SCALE = 0.5
+KEYPAD_DISPLAY_SCALE = 0.6
 SVG_LOADER = "svg"
 TOAST_MARGIN = 8
 TOAST_MAX_WIDTH_CHARS = 20
@@ -101,19 +102,19 @@ def remove_source(source_id):
     return None
 
 
-def display_size(geometry):
-    return round(geometry.width * SKIN_DISPLAY_SCALE), round(geometry.height * SKIN_DISPLAY_SCALE)
+def display_size(geometry, scale):
+    return round(geometry.width * scale), round(geometry.height * scale)
 
 
 def load_photo(path, geometry):
     return GdkPixbuf.Pixbuf.new_from_file(path).scale_simple(
-        *display_size(geometry), GdkPixbuf.InterpType.HYPER
+        *display_size(geometry, SKIN_DISPLAY_SCALE), GdkPixbuf.InterpType.HYPER
     )
 
 
 def load_svg(data, geometry):
     loader = GdkPixbuf.PixbufLoader.new_with_type(SVG_LOADER)
-    loader.set_size(*display_size(geometry))
+    loader.set_size(*display_size(geometry, KEYPAD_DISPLAY_SCALE))
     try:
         loader.write(data)
     finally:
@@ -302,7 +303,8 @@ class RemoteWindow(Gtk.Window):
         overlay.add(self.skin)
         overlay.add_overlay(self.status_label)
         overlay.set_overlay_pass_through(self.status_label, True)
-        self.panel = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_RIGHT)
+        self.keypad.set_valign(Gtk.Align.START)
+        self.panel = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_RIGHT, valign=Gtk.Align.START)
         self.panel.add(self.keypad)
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         box.pack_start(overlay, False, False, 0)

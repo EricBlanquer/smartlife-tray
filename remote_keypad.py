@@ -1,10 +1,10 @@
 from xml.sax.saxutils import escape, quoteattr
 
 from remote_layout import DIGIT_ROWS, KEYPAD_FUNCTION_ROWS, KEYS
-from remote_skin import SKIN_HEIGHT, SKIN_WIDTH, SkinGeometry, circle, rect, svg_path
+from remote_skin import SkinGeometry, circle, rect, svg_path
 
-KEYPAD_WIDTH = SKIN_WIDTH
-KEYPAD_HEIGHT = SKIN_HEIGHT
+KEYPAD_WIDTH = 299
+KEYPAD_HEIGHT = 724
 COLUMN_CENTERS = (64, 150, 236)
 FUNCTION_ROW_TOP = 56
 FUNCTION_ROW_PITCH = 70

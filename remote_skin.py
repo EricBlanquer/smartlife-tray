@@ -4,28 +4,27 @@ import struct
 
 from remote_layout import KEYS, PANEL_ACTION, PLAY_PAUSE_KEY, POWER_ACTION
 
-SKIN_FILENAME = "remote-skin.png"
-SKIN_SOURCE_SHA256 = "e0528b51be097441ab213106f49e2a87fcd6c3b71a7c4fae506cfb2f45cf55c1"
-SKIN_ROTATION_DEGREES = -0.64
-SKIN_CROP_BOX = (10, 3, 309, 727)
-SKIN_WIDTH = SKIN_CROP_BOX[2] - SKIN_CROP_BOX[0]
-SKIN_HEIGHT = SKIN_CROP_BOX[3] - SKIN_CROP_BOX[1]
+IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
+SKIN_FILE = os.path.join(IMAGES_DIR, "remote-skin.png")
+SKIN_WIDTH = 340
+SKIN_HEIGHT = 1496
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 PNG_HEADER_SIZE = 24
 PNG_HEADER_CHUNK = b"IHDR"
 SHAPE_RECT = "rect"
 SHAPE_CIRCLE = "circle"
 SHAPE_SECTOR = "sector"
-DPAD_CENTER_X = 150
-DPAD_CENTER_Y = 366
-DPAD_OUTER_RADIUS = 122
-DPAD_INNER_RADIUS = 63
+DPAD_CENTER_X = 170
+DPAD_CENTER_Y = 372.4
+DPAD_OUTER_RADIUS = 133
+DPAD_INNER_RADIUS = 68
 FULL_TURN_DEGREES = 360
-ROCKER_TOP = 597
-ROCKER_BAR_TOP = 622
-ROCKER_BAR_BOTTOM = 642
-ROCKER_BOTTOM = 681
-ROCKER_RADIUS = 6
+ROCKER_TOP = 625
+ROCKER_BAR_TOP = 659
+ROCKER_BAR_BOTTOM = 689
+ROCKER_BOTTOM = 726
+ROCKER_RADIUS = 8
+KEY_RADIUS = 39
 PATH_PRECISION = 2
 
 
@@ -66,23 +65,23 @@ def sector(key, start, end):
 
 
 HOTSPOTS = [
-    rect(POWER_ACTION, 36, 27, 112, 78, 25),
-    rect(PANEL_ACTION, 28, 193, 94, 247, 8),
+    rect(POWER_ACTION, 37, 36, 117, 84, 24),
+    circle(PANEL_ACTION, 70, 196, KEY_RADIUS),
     circle("KEY_ENTER", DPAD_CENTER_X, DPAD_CENTER_Y, DPAD_INNER_RADIUS),
     sector("KEY_UP", 225, 315),
     sector("KEY_RIGHT", 315, 405),
     sector("KEY_DOWN", 45, 135),
     sector("KEY_LEFT", 135, 225),
-    rect("KEY_RETURN", 28, 492, 102, 549, 8),
-    circle("KEY_HOME", 150, 544, 40),
-    rect(PLAY_PAUSE_KEY, 200, 492, 278, 549, 8),
-    *rocker(31, 151, "KEY_VOLUP", "KEY_MUTE", "KEY_VOLDOWN"),
-    *rocker(152, 271, "KEY_CHUP", "KEY_GUIDE", "KEY_CHDOWN"),
+    circle("KEY_RETURN", 70, 551, KEY_RADIUS),
+    circle("KEY_HOME", 170, 580, KEY_RADIUS),
+    circle(PLAY_PAUSE_KEY, 270, 550, KEY_RADIUS),
+    *rocker(36, 171, "KEY_VOLUP", "KEY_MUTE", "KEY_VOLDOWN"),
+    *rocker(172, 305, "KEY_CHUP", "KEY_GUIDE", "KEY_CHDOWN"),
 ]
 
 
-def skin_file(config_dir):
-    path = os.path.join(config_dir, SKIN_FILENAME)
+def skin_file(path=None):
+    path = path or SKIN_FILE
     try:
         with open(path, "rb") as handle:
             header = handle.read(PNG_HEADER_SIZE)

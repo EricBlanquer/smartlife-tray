@@ -1274,7 +1274,7 @@ class TrayApplication:
     def on_tv_remote_clicked(self, item):
         if self.remote_window is None:
             self.remote_window = RemoteWindow(
-                self.tv, self.toggle_tv_power, ICON_FILE, skin_file(CONFIG_DIR)
+                self.tv, self.toggle_tv_power, ICON_FILE, skin_file()
             )
             self.remote_window.connect("destroy", self.on_remote_window_destroyed)
         self.remote_window.present()

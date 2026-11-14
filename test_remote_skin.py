@@ -1,4 +1,3 @@
-import io
 import os
 import struct
 import tempfile
@@ -12,26 +11,27 @@ import remote_skin
 from remote_layout import PANEL_ACTION, PLAY_PAUSE_KEY, POWER_ACTION
 
 PROBES = {
-    (74, 52): POWER_ACTION,
-    (60, 219): PANEL_ACTION,
-    (150, 273): "KEY_UP",
-    (244, 366): "KEY_RIGHT",
-    (150, 459): "KEY_DOWN",
-    (56, 366): "KEY_LEFT",
-    (150, 366): "KEY_ENTER",
-    (64, 520): "KEY_RETURN",
-    (150, 544): "KEY_HOME",
-    (239, 520): PLAY_PAUSE_KEY,
-    (91, 605): "KEY_VOLUP",
-    (91, 632): "KEY_MUTE",
-    (91, 662): "KEY_VOLDOWN",
-    (212, 605): "KEY_CHUP",
-    (212, 632): "KEY_GUIDE",
-    (212, 662): "KEY_CHDOWN",
-    (150, 175): None,
-    (244, 212): None,
-    (91, 590): None,
-    (91, 690): None,
+    (77, 60): POWER_ACTION,
+    (70, 196): PANEL_ACTION,
+    (170, 272): "KEY_UP",
+    (270, 372): "KEY_RIGHT",
+    (170, 472): "KEY_DOWN",
+    (70, 372): "KEY_LEFT",
+    (170, 372): "KEY_ENTER",
+    (70, 551): "KEY_RETURN",
+    (170, 580): "KEY_HOME",
+    (270, 550): PLAY_PAUSE_KEY,
+    (100, 640): "KEY_VOLUP",
+    (100, 673): "KEY_MUTE",
+    (100, 710): "KEY_VOLDOWN",
+    (240, 640): "KEY_CHUP",
+    (240, 673): "KEY_GUIDE",
+    (240, 710): "KEY_CHDOWN",
+    (170, 159): None,
+    (170, 225): None,
+    (100, 615): None,
+    (100, 735): None,
+    (170, 1200): None,
     (5, 5): None,
 }
 
@@ -77,7 +77,7 @@ class SkinGeometryTests(unittest.TestCase):
                 self.assertTrue(spot["path"].endswith("Z"))
                 self.assertTrue(spot["title"])
         up = next(spot for spot in skin["hotspots"] if spot["key"] == "KEY_UP")
-        self.assertEqual(up["path"], "M63.73,279.73A122,122 0 0 1 236.27,279.73L194.55,321.45A63,63 0 0 0 105.45,321.45Z")
+        self.assertEqual(up["path"], "M75.95,278.35A133,133 0 0 1 264.05,278.35L218.08,324.32A68,68 0 0 0 121.92,324.32Z")
         wheels = {spot["key"]: spot["wheel"] for spot in skin["hotspots"]}
         for key in ("KEY_VOLUP", "KEY_MUTE", "KEY_VOLDOWN"):
             self.assertEqual(wheels[key], ["KEY_VOLUP", "KEY_VOLDOWN"])
@@ -86,8 +86,8 @@ class SkinGeometryTests(unittest.TestCase):
 
     def test_only_a_png_of_the_calibrated_size_is_used(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = os.path.join(directory, remote_skin.SKIN_FILENAME)
-            self.assertIsNone(remote_skin.skin_file(directory))
+            path = os.path.join(directory, "remote-skin.png")
+            self.assertIsNone(remote_skin.skin_file(path))
             cases = (
                 (png_header(remote_skin.SKIN_WIDTH, remote_skin.SKIN_HEIGHT), path),
                 (png_header(remote_skin.SKIN_WIDTH + 1, remote_skin.SKIN_HEIGHT), None),
@@ -99,7 +99,7 @@ class SkinGeometryTests(unittest.TestCase):
                 with self.subTest(content=content[:12]):
                     with open(path, "wb") as handle:
                         handle.write(content)
-                    self.assertEqual(remote_skin.skin_file(directory), expected)
+                    self.assertEqual(remote_skin.skin_file(path), expected)
 
 
 class PrepareSkinTests(unittest.TestCase):
@@ -109,60 +109,117 @@ class PrepareSkinTests(unittest.TestCase):
         draw.rectangle((20, 10, 100, 199), fill=(200, 200, 205))
         draw.rectangle((60, 10, 70, 14), fill=(255, 255, 255))
         draw.point((110, 100), fill=(220, 220, 220))
-        result = prepare_remote_skin.remove_background(image)
-        alpha = result.getchannel("A")
+        alpha = prepare_remote_skin.remove_background(image)
         self.assertEqual(alpha.getpixel((0, 0)), 0)
         self.assertEqual(alpha.getpixel((119, 199)), 0)
         self.assertEqual(alpha.getpixel((60, 100)), 255)
         self.assertGreater(alpha.getpixel((65, 12)), 240)
         self.assertEqual(alpha.getpixel((110, 100)), 0)
 
-    def test_only_the_bottom_corners_are_rounded(self):
-        image = Image.new("RGBA", (120, 200), (200, 200, 205, 255))
-        alpha = prepare_remote_skin.round_bottom_corners(image).getchannel("A")
-        for point in ((0, 199), (119, 199)):
-            self.assertEqual(alpha.getpixel(point), 0)
-        for point in ((0, 0), (119, 0), (0, 150), (60, 199)):
-            self.assertEqual(alpha.getpixel(point), 255)
-        self.assertTrue(0 < alpha.getpixel((3, 192)) < 255)
+    def test_silhouette_has_a_straight_top_and_rounded_corners(self):
+        mask = prepare_remote_skin.body_mask()
+        width, height = mask.size
+        self.assertEqual(mask.size, (remote_skin.SKIN_WIDTH, remote_skin.SKIN_HEIGHT))
+        for point in ((width // 2, 0), (0, 0), (width - 1, 0), (0, height - 1), (width - 1, height - 1)):
+            self.assertEqual(mask.getpixel(point), 0)
+        first_row = prepare_remote_skin.TOP_EDGE + 1
+        self.assertEqual(mask.getpixel((width // 2, prepare_remote_skin.TOP_EDGE - 2)), 0)
+        for point in ((width // 2, first_row), (0, height // 2), (width - 1, height // 2), (width // 2, height - 1)):
+            self.assertEqual(mask.getpixel(point), 255)
+        self.assertEqual({mask.getpixel((x, first_row)) for x in range(20, width - 20)}, {255})
 
-    def test_straightened_photo_has_the_calibrated_size(self):
-        photo = Image.new("RGB", (329, 1358), (255, 255, 255))
-        self.assertEqual(prepare_remote_skin.straighten(photo).size, (remote_skin.SKIN_WIDTH, remote_skin.SKIN_HEIGHT))
+    def test_photos_are_straightened_to_the_skin_size(self):
+        for size, quad in (
+            (prepare_remote_skin.DETAIL_SIZE, prepare_remote_skin.DETAIL_QUAD),
+            (prepare_remote_skin.TONES_SIZE, prepare_remote_skin.TONES_QUAD),
+        ):
+            with self.subTest(size=size):
+                photo = Image.new("RGB", size, (255, 255, 255))
+                self.assertEqual(
+                    prepare_remote_skin.rectify(photo, quad).size, (remote_skin.SKIN_WIDTH, remote_skin.SKIN_HEIGHT)
+                )
 
-    def test_other_photos_are_refused(self):
+    def test_tones_replace_the_colour_cast_but_keep_the_details(self):
+        size = (60, 60)
+        detail = Image.new("RGB", size, (150, 160, 200))
+        ImageDraw.Draw(detail).line([(30, 0), (30, 59)], fill=(20, 30, 70))
+        tones = Image.new("RGB", size, (180, 180, 180))
+        mask = Image.new("L", size, 255)
+        result = prepare_remote_skin.blend(detail, tones, mask)
+        self.assertEqual(result.getpixel((5, 30)), (180, 180, 180))
+        line = result.getpixel((30, 30))
+        self.assertLess(max(line), 100)
+        self.assertLessEqual(max(line) - min(line), 2)
+
+    def test_stain_is_rebuilt_from_its_surroundings(self):
+        left, top, right, bottom = prepare_remote_skin.STAIN_BOX
+        image = Image.new("RGB", (remote_skin.SKIN_WIDTH, 80), (200, 200, 200))
+        ImageDraw.Draw(image).rectangle((left + 10, top + 4, right - 10, bottom - 8), fill=(90, 90, 90))
+        prepare_remote_skin.erase_stain(image)
+        self.assertEqual(image.getpixel(((left + right) // 2, (top + bottom) // 2)), (200, 200, 200))
+        self.assertEqual(image.getpixel((left - 5, top + 5)), (200, 200, 200))
+
+    def test_ring_is_pasted_only_inside_the_directional_pad(self):
+        image = Image.new("RGB", (remote_skin.SKIN_WIDTH, remote_skin.SKIN_HEIGHT), (200, 200, 200))
+        ring = Image.new("RGB", prepare_remote_skin.RING_SIZE, (10, 10, 10))
+        prepare_remote_skin.paste_ring(image, ring)
+        center = (round(remote_skin.DPAD_CENTER_X), round(remote_skin.DPAD_CENTER_Y))
+        self.assertEqual(image.getpixel(center), (10, 10, 10))
+        self.assertEqual(image.getpixel((center[0] + remote_skin.DPAD_OUTER_RADIUS - 2, center[1])), (10, 10, 10))
+        self.assertEqual(image.getpixel((center[0], center[1] - remote_skin.DPAD_OUTER_RADIUS - 8)), (200, 200, 200))
+        self.assertEqual(image.getpixel((5, 5)), (200, 200, 200))
+
+    def test_rocker_is_pasted_only_over_the_bar(self):
+        left, top, right, bottom = prepare_remote_skin.SKIN_ROCKER_BOX
+        image = Image.new("RGB", (remote_skin.SKIN_WIDTH, remote_skin.SKIN_HEIGHT), (200, 200, 200))
+        rocker = Image.new("RGB", prepare_remote_skin.ROCKER_SIZE, (10, 10, 10))
+        prepare_remote_skin.paste_rocker(image, rocker)
+        middle = round((top + bottom) / 2)
+        for x in (round(left) + 15, round((left + right) / 2), round(right) - 15):
+            self.assertEqual(image.getpixel((x, middle)), (10, 10, 10))
+        outside = prepare_remote_skin.ROCKER_MARGIN + 4
+        self.assertEqual(image.getpixel((round((left + right) / 2), round(bottom) + outside)), (200, 200, 200))
+        self.assertEqual(image.getpixel((round(left) - outside, middle)), (200, 200, 200))
+
+    def test_photos_of_another_size_are_refused(self):
         with tempfile.TemporaryDirectory() as directory:
-            photo = os.path.join(directory, "photo.jpg")
-            output = os.path.join(directory, remote_skin.SKIN_FILENAME)
-            buffer = io.BytesIO()
-            Image.new("RGB", (329, 1358), (255, 255, 255)).save(buffer, "JPEG")
-            with open(photo, "wb") as handle:
-                handle.write(buffer.getvalue())
-            with (
-                patch("sys.argv", ["prepare_remote_skin.py", photo, "--output", output]),
-                patch("sys.stderr"),
-            ):
-                with self.assertRaises(SystemExit) as raised:
-                    prepare_remote_skin.main()
+            paths = self.write_photos(directory, detail_size=(329, 1358))
+            output = os.path.join(directory, "skin.png")
+            with self.assertRaises(SystemExit) as raised:
+                self.run_main(paths, output, patch("sys.stderr"))
             self.assertEqual(raised.exception.code, 2)
             self.assertFalse(os.path.exists(output))
 
-    def test_calibrated_photo_produces_a_usable_skin(self):
+    def test_calibrated_photos_produce_a_usable_skin(self):
         with tempfile.TemporaryDirectory() as directory:
-            photo = os.path.join(directory, "photo.jpg")
-            output = os.path.join(directory, remote_skin.SKIN_FILENAME)
-            buffer = io.BytesIO()
-            Image.new("RGB", (329, 1358), (200, 200, 200)).save(buffer, "JPEG")
-            with open(photo, "wb") as handle:
-                handle.write(buffer.getvalue())
-            with (
-                patch.object(prepare_remote_skin, "SKIN_SOURCE_SHA256", prepare_remote_skin.hashlib.sha256(buffer.getvalue()).hexdigest()),
-                patch("sys.argv", ["prepare_remote_skin.py", photo, "--output", output]),
-                patch("sys.stdout"),
-            ):
-                prepare_remote_skin.main()
-            self.assertEqual(remote_skin.skin_file(directory), output)
-            self.assertEqual(sorted(os.listdir(directory)), sorted(["photo.jpg", remote_skin.SKIN_FILENAME]))
+            paths = self.write_photos(directory)
+            output = os.path.join(directory, "skin.png")
+            self.run_main(paths, output, patch("sys.stdout"))
+            self.assertEqual(remote_skin.skin_file(output), output)
+            self.assertEqual(
+                sorted(os.listdir(directory)), sorted(["detail.jpg", "tones.png", "ring.png", "rocker.png", "skin.png"])
+            )
+
+    def test_committed_skin_matches_the_geometry(self):
+        self.assertEqual(remote_skin.skin_file(), remote_skin.SKIN_FILE)
+
+    def write_photos(self, directory, detail_size=prepare_remote_skin.DETAIL_SIZE):
+        paths = {
+            "detail": (os.path.join(directory, "detail.jpg"), detail_size),
+            "tones": (os.path.join(directory, "tones.png"), prepare_remote_skin.TONES_SIZE),
+            "ring": (os.path.join(directory, "ring.png"), prepare_remote_skin.RING_SIZE),
+            "rocker": (os.path.join(directory, "rocker.png"), prepare_remote_skin.ROCKER_SIZE),
+        }
+        for path, size in paths.values():
+            Image.new("RGB", size, (200, 200, 200)).save(path)
+        return {name: path for name, (path, _) in paths.items()}
+
+    def run_main(self, paths, output, quiet):
+        arguments = ["prepare_remote_skin.py", "--output", output]
+        for name, path in paths.items():
+            arguments += [f"--{name}", path]
+        with patch("sys.argv", arguments), quiet:
+            prepare_remote_skin.main()
 
 
 if __name__ == "__main__":

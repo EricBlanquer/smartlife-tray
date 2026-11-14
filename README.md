@@ -149,32 +149,43 @@ Maintenir une flèche ou le volume répète la touche ; un échec s'affiche et v
 
 ### Photo de la télécommande
 
-Avec `~/.config/smartlife-tray/remote-skin.png`, la fenêtre et la page web affichent la photo d'une
-Samsung One Remote, avec ses touches cliquables : marche/arrêt, anneau directionnel et OK, retour,
-accueil, lecture/pause, bascules VOL et CH.
+La fenêtre et la page web affichent la photo entière d'une Samsung BN59-01311B, la télécommande de la série Q
+de 2019 : `images/remote-skin.png`, versionnée avec ses sources.
+Ses touches sont cliquables : marche/arrêt, anneau directionnel et OK, retour, accueil, lecture/pause,
+bascules VOL et CH.
 Comme sur la vraie télécommande, chaque bascule a trois zones : au-dessus de la barre pour monter,
 au-dessous pour descendre, et la barre elle-même pour l'appui, qui coupe ou rétablit le son (VOL) ou ouvre
 le guide des programmes (CH) ; la molette de la souris règle le volume ou change de chaîne.
-**123** ouvre à côté un pavé assorti, en aluminium brossé, avec les autres touches et les chiffres ; le micro et
-les pastilles de couleur restent inertes.
+**123** ouvre à côté un pavé assorti, en aluminium brossé, avec les autres touches et les chiffres ; le micro,
+Ambient, Netflix, Prime Video et Rakuten TV restent inertes.
 Ce pavé est dessiné en SVG par `remote_keypad.py` d'après `KEYPAD_FUNCTION_ROWS` et `DIGIT_ROWS`, et la page web
 le reçoit sur `/remote-keypad.svg`.
 
-La fenêtre affiche la photo réduite (`SKIN_DISPLAY_SCALE`), sans marge ni barre de titre, sur un fond
+La fenêtre affiche la photo réduite de moitié (`SKIN_DISPLAY_SCALE`), sans marge ni barre de titre, sur un fond
 transparent quand le bureau est composité.
 Un clic maintenu hors des touches suivi d'un glisser la déplace ; le clic droit propose de la fermer, comme Alt+F4.
 L'état (connexion, échec, commande marche/arrêt) apparaît dans un bandeau sur le bas de la photo, qui laisse
 passer les clics et disparaît 5 s après un message final ; la page web ajuste la photo à la hauteur de l'écran.
 
-La photo n'est pas versionnée : les zones (`remote_skin.py`) sont calibrées sur une photo produit précise,
-vérifiée par sa somme SHA-256. La télécharger depuis la fiche produit, puis la redresser, la recadrer au ras
-de la télécommande, arrondir ses coins inférieurs et détourer son fond (Pillow requis) :
+`prepare_remote_skin.py` reconstruit cette image à partir des photos de `images/` (Pillow et NumPy requis,
+voir `requirements-dev.txt`) :
+
+- `remote-detail.jpg` (fiche idealo) donne les détails : redressée par sa perspective, elle fixe la géométrie
+  sur laquelle les zones de `remote_skin.py` sont calibrées ;
+- `remote-tones.png` (fiche matelecommandetv.com, AVIF décodé sans perte) donne les tons gris neutres : ses
+  variations lentes remplacent les reflets et la teinte bleue de la première ;
+- `remote-ring.png` et `remote-rocker.png` (photo produit Amazon de la One Remote) donnent l'anneau
+  directionnel et la bascule VOL/CH, incrustés à leur place ;
+- la tache de la fenêtre infrarouge est reconstruite d'après son voisinage, et la silhouette prend un bord
+  supérieur droit et des coins arrondis.
 
 ```bash
-venv/bin/python prepare_remote_skin.py one-remote.jpg
+venv/bin/pip install -r requirements-dev.txt
+venv/bin/python prepare_remote_skin.py
 ```
 
-Sans ce fichier, ou s'il n'a pas les dimensions attendues, la grille de boutons est affichée.
+Les dimensions de chaque photo sont vérifiées, puisque les positions sont calibrées sur elles.
+Si l'image manque ou n'a pas les dimensions attendues, la grille de boutons est affichée.
 
 ### Raccourcis clavier
 
@@ -235,7 +246,7 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
-La configuration, le jeton et la photo se trouvent dans `~/.config/smartlife-tray/` de l'utilisateur du service.
+La configuration et le jeton se trouvent dans `~/.config/smartlife-tray/` de l'utilisateur du service.
 Le premier envoi de touche déclenche la demande d'autorisation **SmartLife** sur la TV, comme pour l'extinction.
 
 ## Tests
@@ -371,4 +382,6 @@ venv/bin/python -m tinytuya scan
 
 ## Licence
 
-MIT
+MIT pour le code.
+Les photos de `images/` sont des photos produit Samsung reprises de fiches commerciales : elles ne sont pas
+couvertes par cette licence.

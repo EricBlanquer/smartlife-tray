@@ -91,7 +91,7 @@ class RemoteRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_file(path, SKIN_CONTENT_TYPE)
 
     def skin_path(self):
-        return skin_file(self.server.tv.config_dir)
+        return skin_file()
 
     def layout(self):
         photo = self.skin_path() is not None
