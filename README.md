@@ -163,12 +163,14 @@ Tant que la fenêtre a le focus, elle est réservée sur tout l'écran (`global_
 volume même hors de la télécommande ; cliquer dans une autre fenêtre lui rend son défilement.
 **123** affiche ou masque, sur le manche de la télécommande au-dessus du logo, un pavé avec les autres touches et
 les chiffres.
-La fenêtre garde toujours la taille de la télécommande entière.
-À l'ouverture, elle est placée plus bas que l'écran : seul le panneau de touches reste au-dessus du bord
-(`KEY_PANEL_BOTTOM`), et la partie qui dépasse sous la zone de travail n'est ni dessinée ni cliquable.
-**123** fait glisser la télécommande vers le haut en 0,2 s pour montrer le pavé, puis la redescend ; il en va de
-même partout où elle a été posée trop bas.
-Entièrement visible, elle ne bouge pas, et déplacée pendant que le pavé est affiché, elle reste où elle a été posée.
+La fenêtre garde toujours la taille de la télécommande entière et reste à l'écran.
+À l'ouverture, la télécommande y est dessinée plus bas : seul son panneau de touches dépasse du bord inférieur
+(`KEY_PANEL_BOTTOM`), et le haut de la fenêtre, vide, laisse passer les clics.
+**123** la fait glisser vers le haut en 0,2 s pour montrer le pavé, puis la redescend.
+Glissée à la souris plus bas que le bord de l'écran, elle est remontée de la même façon, puis rangée là où
+elle avait été posée.
+Éloignée du bord de plus de 24 pixels, elle se déploie en entier et **123** ne la déplace plus ; déplacée
+pendant que le pavé est affiché, elle reste où elle a été posée.
 Sans les animations du bureau (`gtk-enable-animations`), elle change de position d'un coup.
 Ambient envoie `KEY_AMBIENT` et le micro `KEY_MIC`.
 Netflix, Prime Video et Rakuten TV lancent leur application par son identifiant (`*_APP_ID` dans

@@ -36,6 +36,7 @@ SKIN_DISPLAY_SCALE = 0.5
 ICON_SIZES = (16, 24, 32, 48, 64, 128)
 SETTLE_DELAY_MS = 300
 SLIDE_DURATION_MICROSECONDS = 220_000
+UNTUCK_DISTANCE = 24
 MINIMUM_VISIBLE_HEIGHT = 1
 ANIMATIONS_SETTING = "gtk-enable-animations"
 ICON_ANGLE_DEGREES = 45
@@ -283,15 +284,17 @@ class RemoteWindow(Gtk.Window):
         self.status_label.set_line_wrap(True)
         self.toast_source_id = None
         self.settle_source_id = None
-        self.expected_position = None
-        self.known_position = None
+        self.settled_top = None
+        self.remote_view = None
         self.transparent = False
-        self.clip_height = None
+        self.clip_rows = None
         self.keypad_open = False
-        self.rest_y = None
-        self.lift = 0
+        self.tuck = 0
+        self.rest_top = None
+        self.open_top = None
         self.slide_tick_id = None
-        self.slide_position = None
+        self.slide_x = None
+        self.slide_top = None
         self.slide_origin = None
         self.slide_target = None
         self.slide_started_at = None
@@ -349,11 +352,7 @@ class RemoteWindow(Gtk.Window):
     def place_in_bottom_right_corner(self):
         area = self.work_area()
         size = self.get_preferred_size().natural_size
-        visible = size.height if self.skin is None else round(KEY_PANEL_BOTTOM * self.skin.scale_y)
-        self.expected_position = (area.x + area.width - size.width, area.y + area.height - visible)
-        self.move(*self.expected_position)
-        if self.skin is not None:
-            self.clip_at(self.expected_position[1])
+        self.move(area.x + area.width - size.width, area.y + area.height - size.height)
 
     def create_grid_view(self):
         self.set_border_width(BORDER_WIDTH)
@@ -369,17 +368,21 @@ class RemoteWindow(Gtk.Window):
         self.use_transparent_background()
         self.context_menu = self.create_context_menu()
         self.style_toast()
-        overlay = Gtk.Overlay()
-        overlay.add(self.skin)
-        overlay.add_overlay(self.place_keypad())
-        overlay.add_overlay(self.status_label)
-        overlay.set_overlay_pass_through(self.status_label, True)
+        self.remote_view = Gtk.Overlay()
+        self.remote_view.add(self.skin)
+        self.remote_view.add_overlay(self.place_keypad())
+        self.remote_view.add_overlay(self.status_label)
+        self.remote_view.set_overlay_pass_through(self.status_label, True)
+        self.show_tuck(self.full_height() - round(KEY_PANEL_BOTTOM * self.skin.scale_y), None)
         self.connect("map", self.on_map)
         self.connect("configure-event", self.on_configure)
-        return overlay
+        return self.remote_view
 
     def on_map(self, window):
         self.apply_clip()
+
+    def full_height(self):
+        return self.skin.pixbuf.get_height()
 
     def frame_position(self):
         gdk_window = self.get_window()
@@ -388,24 +391,23 @@ class RemoteWindow(Gtk.Window):
         frame = gdk_window.get_frame_extents()
         return frame.x, frame.y
 
-    def visible_height_at(self, top):
-        return max(MINIMUM_VISIBLE_HEIGHT, min(self.skin.pixbuf.get_height(), self.work_area_bottom() - top))
+    def show_tuck(self, tuck, top):
+        self.tuck = tuck
+        self.remote_view.set_margin_top(tuck)
+        self.skin.set_size_request(self.skin.pixbuf.get_width(), self.full_height() - tuck)
+        self.clip_at(top)
 
     def clip_at(self, top):
-        self.show_height(self.visible_height_at(top), clipped=True)
-
-    def show_height(self, visible, clipped):
-        height = self.skin.pixbuf.get_height()
-        self.status_label.set_margin_bottom(TOAST_MARGIN + height - visible)
-        self.clip(visible if clipped else height)
-
-    def clip(self, height):
-        if height != self.clip_height:
-            self.clip_height = height
+        bottom = self.full_height() if top is None else min(self.full_height(), self.work_area_bottom() - top)
+        bottom = max(bottom, self.tuck + MINIMUM_VISIBLE_HEIGHT)
+        self.status_label.set_margin_bottom(TOAST_MARGIN + self.full_height() - bottom)
+        if (self.tuck, bottom) != self.clip_rows:
+            self.clip_rows = (self.tuck, bottom)
             self.apply_clip()
 
     def apply_clip(self):
-        region = cairo.Region(cairo.RectangleInt(0, 0, self.skin.pixbuf.get_width(), self.clip_height))
+        first, end = self.clip_rows
+        region = cairo.Region(cairo.RectangleInt(0, first, self.skin.pixbuf.get_width(), end - first))
         self.input_shape_combine_region(region)
         if not self.transparent:
             self.shape_combine_region(region)
@@ -414,19 +416,17 @@ class RemoteWindow(Gtk.Window):
     def animated(self):
         return self.get_mapped() and self.get_settings().get_property(ANIMATIONS_SETTING)
 
-    def rest_here(self):
-        self.rest_y = self.frame_position()[1]
-        self.lift = max(0, self.rest_y + self.skin.pixbuf.get_height() - self.work_area_bottom())
+    def current_position(self):
+        return (self.slide_x, self.slide_top) if self.slide_tick_id is not None else self.frame_position()
 
-    def slide_to(self, target):
-        x, origin = self.slide_position if self.slide_tick_id is not None else self.frame_position()
+    def slide(self, tuck, top):
+        self.slide_x, self.slide_top = self.current_position()
         self.stop_slide()
-        self.slide_position = (x, origin)
-        if target == origin or not self.animated():
-            self.land(target)
+        self.slide_origin = (self.tuck, self.slide_top)
+        self.slide_target = (tuck, top)
+        if self.slide_origin == self.slide_target or not self.animated():
+            self.land()
             return
-        self.slide_origin = origin
-        self.slide_target = target
         self.slide_started_at = None
         self.slide_tick_id = self.add_tick_callback(self.on_slide_tick)
 
@@ -437,31 +437,43 @@ class RemoteWindow(Gtk.Window):
         progress = min(1, (now - self.slide_started_at) / SLIDE_DURATION_MICROSECONDS)
         if progress == 1:
             self.slide_tick_id = None
-            self.land(self.slide_target)
+            self.land()
             return GLib.SOURCE_REMOVE
         eased = progress * progress * (3 - 2 * progress)
-        top = round(self.slide_origin + (self.slide_target - self.slide_origin) * eased)
-        self.slide_position = (self.slide_position[0], top)
-        self.move(*self.slide_position)
-        self.show_height(self.visible_height_at(top), clipped=False)
+        steps = zip(self.slide_origin, self.slide_target)
+        self.show_slide(*(round(start + (end - start) * eased) for start, end in steps))
         return GLib.SOURCE_CONTINUE
 
-    def land(self, target):
-        self.expected_position = (self.slide_position[0], target)
-        self.move(*self.expected_position)
-        self.clip_at(target)
-        if not self.keypad_open:
-            self.lift = 0
+    def show_slide(self, tuck, top):
+        if top != self.slide_top:
+            self.slide_top = top
+            self.move(self.slide_x, top)
+        self.show_tuck(tuck, top)
+
+    def land(self):
+        self.show_slide(*self.slide_target)
         self.keypad.set_visible(self.keypad_open)
+        if self.keypad_open:
+            self.open_top = self.slide_top
 
     def stop_slide(self):
         if self.slide_tick_id is not None:
             self.remove_tick_callback(self.slide_tick_id)
             self.slide_tick_id = None
 
+    def overflow(self, top):
+        return top + self.full_height() - self.work_area_bottom()
+
+    def untuck_away_from_the_edge(self, top):
+        if not self.keypad_open and self.tuck and self.overflow(top) < -UNTUCK_DISTANCE:
+            self.slide(0, top)
+
     def on_configure(self, window, event):
         if self.slide_tick_id is None:
-            self.clip_at(self.frame_position()[1])
+            top = self.frame_position()[1]
+            self.clip_at(top)
+            if self.dragging():
+                self.untuck_away_from_the_edge(top)
         self.settle_source_id = remove_source(self.settle_source_id)
         self.settle_source_id = GLib.timeout_add(SETTLE_DELAY_MS, self.settle)
         return False
@@ -481,19 +493,15 @@ class RemoteWindow(Gtk.Window):
             self.settle_source_id = GLib.timeout_add(SETTLE_DELAY_MS, self.settle)
             return False
         position = self.frame_position()
-        if position is None or position == self.known_position:
+        if position is None or position[1] == self.settled_top:
             return False
-        self.known_position = position
-        if position != self.expected_position:
-            self.on_moved_by_user()
+        top = self.settled_top = position[1]
+        if not self.keypad_open:
+            self.untuck_away_from_the_edge(top)
+        elif top != self.open_top:
+            self.rest_top = top
+            self.slide(0, top - max(0, self.overflow(top)))
         return False
-
-    def on_moved_by_user(self):
-        self.rest_here()
-        if self.keypad_open:
-            self.slide_to(self.rest_y - self.lift)
-        else:
-            self.lift = 0
 
     def place_keypad(self):
         origin_x, origin_y = KEYPAD.origin
@@ -522,11 +530,9 @@ class RemoteWindow(Gtk.Window):
         return False
 
     def on_draw_clip(self, window, context):
-        if self.clip_height is None:
-            return False
-        pixbuf = self.skin.pixbuf
+        end = self.clip_rows[1]
         context.set_operator(cairo.OPERATOR_CLEAR)
-        context.rectangle(0, self.clip_height, pixbuf.get_width(), pixbuf.get_height() - self.clip_height)
+        context.rectangle(0, end, self.skin.pixbuf.get_width(), self.full_height() - end)
         context.fill()
         context.set_operator(cairo.OPERATOR_OVER)
         return False
@@ -602,13 +608,14 @@ class RemoteWindow(Gtk.Window):
         if self.keypad is None:
             return
         self.keypad_open = not self.keypad_open
+        top = self.current_position()[1]
         if not self.keypad_open:
-            self.slide_to(self.rest_y)
+            self.slide(self.rest_top - top, top)
             return
         self.keypad.show()
         if self.slide_tick_id is None:
-            self.rest_here()
-        self.slide_to(self.rest_y - self.lift)
+            self.rest_top = top + self.tuck
+        self.slide(0, top - max(0, self.overflow(top)))
 
     def on_button_clicked(self, button, key):
         self.activate(key)
