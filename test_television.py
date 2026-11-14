@@ -3,11 +3,13 @@ import json
 import os
 import socket
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, call, patch
 
 import television
+import websocket
 
 
 class TelevisionTests(unittest.TestCase):
@@ -240,6 +242,9 @@ class TelevisionTests(unittest.TestCase):
 
 
 
+SOCKET_TIMEOUT_SECONDS = 2
+
+
 class TlsLikeSocket(socket.socket):
     def pending(self):
         return 0
@@ -262,16 +267,23 @@ class RemoteKeyTests(unittest.TestCase):
     def create_remote(self, **kwargs):
         local, peer = socket.socketpair()
         tls_like = TlsLikeSocket(fileno=local.detach())
+        tls_like.settimeout(SOCKET_TIMEOUT_SECONDS)
+        peer.settimeout(SOCKET_TIMEOUT_SECONDS)
         self.sockets.append(peer)
         self.addCleanup(tls_like.close)
         self.addCleanup(peer.close)
+        connection = websocket.WebSocket()
+        connection.sock = tls_like
+        connection.connected = True
         remote = Mock()
         remote.token = "paired-token"
-        remote.connection.sock = tls_like
-        remote.connection.connected = True
-        remote.connection.recv.side_effect = lambda: tls_like.recv(1024).decode()
+        remote.connection = connection
         self.remotes.append(remote)
         return remote
+
+    @staticmethod
+    def tv_frame(opcode, payload=b""):
+        return bytes((0x80 | opcode, len(payload))) + payload
 
     def test_keys_reuse_one_paired_connection_without_press_delay(self):
         self.tv.send_key("KEY_UP")
@@ -302,10 +314,41 @@ class RemoteKeyTests(unittest.TestCase):
 
     def test_tv_events_do_not_invalidate_a_live_connection(self):
         self.tv.send_key("KEY_UP")
-        self.sockets[0].sendall(b'{"event": "ms.channel.clientConnect"}')
+        self.sockets[0].sendall(self.tv_frame(
+            websocket.ABNF.OPCODE_TEXT, b'{"event": "ms.channel.clientConnect"}'
+        ))
         self.tv.send_key("KEY_DOWN")
         self.assertEqual(len(self.remotes), 1)
-        self.assertEqual(self.remotes[0].connection.recv.call_count, 1)
+        self.assertEqual(self.remotes[0].send_key.call_count, 2)
+
+    def test_tv_keepalive_pings_are_answered_without_delaying_keys(self):
+        self.tv.send_key("KEY_UP")
+        for _ in range(3):
+            self.sockets[0].sendall(self.tv_frame(websocket.ABNF.OPCODE_PING, b"\x00"))
+        started = time.monotonic()
+        self.tv.send_key("KEY_DOWN")
+        self.assertLess(time.monotonic() - started, 0.5)
+        self.assertEqual(len(self.remotes), 1)
+        self.remotes[0].send_key.assert_called_with("KEY_DOWN", key_press_delay=0)
+        pongs = self.sockets[0].recv(1024)
+        self.assertEqual(pongs.count(bytes((0x80 | websocket.ABNF.OPCODE_PONG,))), 3)
+
+    def test_close_frame_from_the_tv_replaces_the_connection(self):
+        self.tv.send_key("KEY_UP")
+        self.sockets[0].sendall(self.tv_frame(websocket.ABNF.OPCODE_CLOSE))
+        self.tv.send_key("KEY_DOWN")
+        self.assertEqual(len(self.remotes), 2)
+        self.remotes[1].send_key.assert_called_once_with("KEY_DOWN", key_press_delay=0)
+
+    def test_truncated_tv_frame_cannot_stall_the_keys(self):
+        self.tv.send_key("KEY_UP")
+        self.sockets[0].sendall(bytes((0x80 | websocket.ABNF.OPCODE_TEXT, 50)) + b"partial")
+        started = time.monotonic()
+        with patch.object(television, "REMOTE_DRAIN_TIMEOUT_SECONDS", 0.1):
+            self.tv.send_key("KEY_DOWN")
+        self.assertLess(time.monotonic() - started, 0.5)
+        self.assertEqual(len(self.remotes), 2)
+        self.remotes[1].send_key.assert_called_once_with("KEY_DOWN", key_press_delay=0)
 
     def test_failed_send_on_a_stale_connection_is_retried_once_on_a_new_one(self):
         self.tv.send_key("KEY_UP")

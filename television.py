@@ -20,6 +20,7 @@ STATUS_TIMEOUT_SECONDS = 2
 REMOTE_TIMEOUT_SECONDS = 30
 REMOTE_KEY_PRESS_DELAY_SECONDS = 0
 REMOTE_IDLE_SECONDS = 60
+REMOTE_DRAIN_TIMEOUT_SECONDS = 1
 NETWORK_TIMEOUT_SECONDS = 5
 WOL_PORTS = (9, 7)
 WOL_BURST_COUNT = 10
@@ -189,12 +190,17 @@ class Television:
         connection = self.remote.connection
         if connection is None or not connection.connected:
             return False
+        timeout = connection.gettimeout()
+        connection.settimeout(REMOTE_DRAIN_TIMEOUT_SECONDS)
         try:
             while select.select([connection.sock], [], [], 0)[0] or connection.sock.pending():
-                if not connection.recv():
+                opcode, _ = connection.recv_data_frame(control_frame=True)
+                if opcode == websocket.ABNF.OPCODE_CLOSE:
                     return False
         except REMOTE_ERRORS:
             return False
+        finally:
+            connection.settimeout(timeout)
         return True
 
     def close_remote(self):
