@@ -106,7 +106,7 @@ class RemoteServerTests(unittest.TestCase):
     def test_app_keys_launch_their_app(self):
         response, body = self.post("/api/key", {"key": "APP_NETFLIX"})
         self.assertEqual((response.status, body), (204, b""))
-        self.tv.launch_app.assert_called_once_with("3201907018807")
+        self.tv.launch_app.assert_called_once_with("3201907018807", "Netflix")
         self.tv.send_key.assert_not_called()
 
     def test_power_and_unknown_keys_are_refused(self):

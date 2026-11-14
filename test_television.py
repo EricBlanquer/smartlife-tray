@@ -286,11 +286,30 @@ class RemoteKeyTests(unittest.TestCase):
     def tv_frame(opcode, payload=b""):
         return bytes((0x80 | opcode, len(payload))) + payload
 
+    def app_status(self, status):
+        response = io.BytesIO(b"{}")
+        response.status = status
+        patcher = patch.object(television.http.client, "HTTPConnection")
+        connection = patcher.start()
+        self.addCleanup(patcher.stop)
+        connection.return_value.getresponse.return_value = response
+        return connection
+
     def test_apps_launch_on_the_shared_connection(self):
+        connection = self.app_status(200)
         self.tv.send_key("KEY_UP")
-        self.tv.launch_app("3201907018807")
+        self.tv.launch_app("3201907018807", "Netflix")
         self.assertEqual(len(self.remotes), 1)
         self.remotes[0].run_app.assert_called_once_with("3201907018807")
+        connection.assert_called_once_with("192.0.2.10", 8001, timeout=2)
+        connection.return_value.request.assert_called_once_with("GET", "/api/v2/applications/3201907018807")
+        connection.return_value.close.assert_called_once_with()
+
+    def test_missing_app_is_reported_without_launching(self):
+        self.app_status(404)
+        with self.assertRaisesRegex(LookupError, "^Rakuten TV is not installed on the TV$"):
+            self.tv.launch_app("3201511006428", "Rakuten TV")
+        self.assertEqual(self.remotes, [])
 
     def test_keys_reuse_one_paired_connection_without_press_delay(self):
         self.tv.send_key("KEY_UP")

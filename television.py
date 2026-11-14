@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from http import HTTPStatus
 
 import websocket
 from samsungtvws import SamsungTVWS
@@ -16,6 +17,7 @@ TOKEN_FILENAME = "tv_token.txt"
 STATUS_PORT = 8001
 REMOTE_PORT = 8002
 STATUS_PATH = "/api/v2/"
+APPLICATIONS_PATH = "/api/v2/applications/"
 STATUS_TIMEOUT_SECONDS = 2
 REMOTE_TIMEOUT_SECONDS = 30
 REMOTE_KEY_PRESS_DELAY_SECONDS = 0
@@ -80,24 +82,25 @@ class Television:
         self.is_on = None
         if not self.configured:
             return
-        connection = None
         try:
-            connection = http.client.HTTPConnection(
-                self.host, STATUS_PORT, timeout=STATUS_TIMEOUT_SECONDS
-            )
-            connection.request("GET", STATUS_PATH)
-            response = connection.getresponse()
-            if response.status == 200:
-                data = json.load(response)
+            status, body = self.fetch_status(STATUS_PATH)
+            if status == HTTPStatus.OK:
+                data = json.loads(body)
                 device = data.get("device", {}) if isinstance(data, dict) else {}
                 state = device.get("PowerState") if isinstance(device, dict) else None
                 if isinstance(state, str):
                     self.is_on = POWER_STATES.get(state.lower())
         except (OSError, ValueError, http.client.HTTPException):
             pass
+
+    def fetch_status(self, path):
+        connection = http.client.HTTPConnection(self.host, STATUS_PORT, timeout=STATUS_TIMEOUT_SECONDS)
+        try:
+            connection.request("GET", path)
+            response = connection.getresponse()
+            return response.status, response.read()
         finally:
-            if connection is not None:
-                connection.close()
+            connection.close()
 
     def lan_addresses(self):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as connection:
@@ -165,7 +168,11 @@ class Television:
     def send_key(self, key):
         self.use_remote(lambda remote: remote.send_key(key, key_press_delay=REMOTE_KEY_PRESS_DELAY_SECONDS))
 
-    def launch_app(self, app_id):
+    def launch_app(self, app_id, name):
+        self.require_configuration()
+        status, _ = self.fetch_status(APPLICATIONS_PATH + app_id)
+        if status == HTTPStatus.NOT_FOUND:
+            raise LookupError(f"{name} is not installed on the TV")
         self.use_remote(lambda remote: remote.run_app(app_id))
 
     def use_remote(self, command):

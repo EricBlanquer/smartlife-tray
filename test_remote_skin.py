@@ -30,8 +30,8 @@ PROBES = {
     (270, 193): "KEY_AMBIENT",
     (68, 784): "APP_NETFLIX",
     (169, 784): "APP_PRIME_VIDEO",
-    (270, 784): None,
-    (170, 159): None,
+    (270, 784): "APP_RAKUTEN_TV",
+    (170, 159): "KEY_MIC",
     (170, 225): None,
     (100, 615): None,
     (100, 735): None,
@@ -52,7 +52,7 @@ class SkinGeometryTests(unittest.TestCase):
                 self.assertEqual(spot["key"] if spot else None, key)
 
     def test_ring_sectors_split_on_the_diagonals(self):
-        ring = remote_skin.HOTSPOTS[3]
+        ring = next(spot for spot in remote_skin.HOTSPOTS if spot["key"] == "KEY_UP")
         radius = (remote_skin.DPAD_INNER_RADIUS + remote_skin.DPAD_OUTER_RADIUS) / 2
         for degrees, key in (
             (270, "KEY_UP"), (226, "KEY_UP"), (314, "KEY_UP"), (316, "KEY_RIGHT"), (0, "KEY_RIGHT"),

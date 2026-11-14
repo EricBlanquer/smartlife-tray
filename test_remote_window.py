@@ -352,16 +352,19 @@ class SkinWindowTests(unittest.TestCase):
         self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 2))
         self.assertEqual(self.sent_keys(), ["KEY_MUTE", "KEY_GUIDE"])
 
-    def test_app_hotspots_launch_netflix_and_prime_video(self):
-        self.click(68, 784)
-        self.click(169, 784)
-        self.assertTrue(wait_until(lambda: self.tv.launch_app.call_count == 2))
-        self.assertEqual(
-            [entry.args[0] for entry in self.tv.launch_app.call_args_list], ["3201907018807", "3201512006785"]
-        )
+    def test_app_hotspots_launch_their_app(self):
+        for x in (68, 169, 270):
+            self.click(x, 784)
+        self.assertTrue(wait_until(lambda: self.tv.launch_app.call_count == 3))
+        self.assertEqual([entry.args for entry in self.tv.launch_app.call_args_list], [
+            ("3201907018807", "Netflix"), ("3201512006785", "Prime Video"), ("3201511006428", "Rakuten TV"),
+        ])
+
+    def test_ambient_and_microphone_hotspots_send_their_keys(self):
         self.click(270, 193)
-        self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 1))
-        self.assertEqual(self.sent_keys(), ["KEY_AMBIENT"])
+        self.click(170, 159)
+        self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 2))
+        self.assertEqual(self.sent_keys(), ["KEY_AMBIENT", "KEY_MIC"])
 
     def test_power_and_123_hotspots_trigger_their_actions(self):
         self.click(77, 60)
@@ -375,7 +378,7 @@ class SkinWindowTests(unittest.TestCase):
 
     def test_inert_areas_and_other_buttons_do_nothing(self):
         with patch.object(self.window, "begin_move_drag"), patch.object(self.window.context_menu, "popup_at_pointer"):
-            for x, y in ((170, 225), (300, 120), (5, 5)):
+            for x, y in ((170, 225), (300, 110), (5, 5)):
                 self.assertFalse(self.press(x, y, button=Gdk.BUTTON_MIDDLE))
                 self.assertFalse(self.press(x, y, event_type=Gdk.EventType._2BUTTON_PRESS))
         drain_events()

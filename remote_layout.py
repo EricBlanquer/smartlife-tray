@@ -5,6 +5,7 @@ STYLE_ACCENT = "accent"
 PLAY_PAUSE_KEY = "KEY_PLAY_BACK"
 NETFLIX_APP_ID = "3201907018807"
 PRIME_VIDEO_APP_ID = "3201512006785"
+RAKUTEN_TV_APP_ID = "3201511006428"
 
 
 def button(key, label, title, gtk_keys=(), web_keys=(), repeat=False, style=None, app=None):
@@ -52,6 +53,8 @@ KEYS = {
         button("KEY_AMBIENT", "Ambiant", "Mode Ambiant"),
         button("APP_NETFLIX", "Netflix", "Netflix", app=NETFLIX_APP_ID),
         button("APP_PRIME_VIDEO", "Prime Video", "Prime Video", app=PRIME_VIDEO_APP_ID),
+        button("APP_RAKUTEN_TV", "Rakuten TV", "Rakuten TV", app=RAKUTEN_TV_APP_ID),
+        button("KEY_MIC", "Micro", "Commande vocale"),
         button("KEY_REWIND", "◀◀", "Retour rapide"),
         button("KEY_PLAY", "Lecture", "Lecture"),
         button("KEY_FF", "▶▶", "Avance rapide"),
@@ -84,7 +87,8 @@ REMOTE_LAYOUT = [
     row("KEY_VOLDOWN", None, "KEY_CHDOWN"),
     row("KEY_REWIND", "KEY_PLAY", "KEY_FF"),
     row("KEY_STOP", "KEY_PAUSE", PLAY_PAUSE_KEY),
-    row("KEY_AMBIENT", "APP_NETFLIX", "APP_PRIME_VIDEO"),
+    row("KEY_AMBIENT", "KEY_MIC", None),
+    row("APP_NETFLIX", "APP_PRIME_VIDEO", "APP_RAKUTEN_TV"),
     *DIGIT_ROWS,
 ]
 
@@ -101,8 +105,8 @@ REMOTE_KEYS = frozenset(key for key in KEYS if key not in ACTIONS)
 
 
 def send(tv, key):
-    app = KEYS[key]["app"]
-    if app:
-        tv.launch_app(app)
+    cell = KEYS[key]
+    if cell["app"]:
+        tv.launch_app(cell["app"], cell["title"])
     else:
         tv.send_key(key)
