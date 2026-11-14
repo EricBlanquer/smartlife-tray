@@ -158,7 +158,11 @@ Comme sur la vraie télécommande, chaque bascule a trois zones : au-dessus de l
 au-dessous pour descendre, et la barre elle-même pour l'appui, qui coupe ou rétablit le son (VOL) ou ouvre
 le guide des programmes (CH) ; la molette de la souris règle le volume ou change de chaîne.
 **123** affiche ou masque, sur le manche de la télécommande au-dessus du logo, un pavé avec les autres touches et
-les chiffres, sans changer la taille de la fenêtre.
+les chiffres.
+Tant que la fenêtre est ancrée au coin inférieur droit, son manche est masqué (coupe à `KEY_PANEL_BOTTOM`) et la
+télécommande remonte pour l'afficher avec le pavé.
+Déplacée ailleurs, elle s'affiche entière et le pavé ne la déplace plus ; relâchée à moins de 8 pixels du coin,
+elle s'y ancre de nouveau.
 Ambient envoie `KEY_AMBIENT` et le micro `KEY_MIC`.
 Netflix, Prime Video et Rakuten TV lancent leur application par son identifiant (`*_APP_ID` dans
 `remote_layout.py`) sur la même connexion WebSocket ; si elle n'est pas installée, la TV ouvre sa page

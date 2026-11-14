@@ -21,7 +21,7 @@ from remote_layout import (
     STYLE_POWER,
     send,
 )
-from remote_skin import REMOTE_SKIN, trace
+from remote_skin import KEY_PANEL_BOTTOM, REMOTE_SKIN, trace
 
 WINDOW_TITLE = "Télécommande"
 NBSP = " "
@@ -33,6 +33,8 @@ BUTTON_WIDTH = 76
 BUTTON_HEIGHT = 44
 SKIN_DISPLAY_SCALE = 0.5
 ICON_SIZES = (16, 24, 32, 48, 64, 128)
+DOCK_TOLERANCE = 8
+DOCK_CHECK_DELAY_MS = 300
 ICON_ANGLE_DEGREES = 45
 SVG_LOADER = "svg"
 TOAST_MARGIN = 8
@@ -183,6 +185,9 @@ class SkinView(Gtk.DrawingArea):
             context.fill()
         return False
 
+    def set_visible_height(self, skin_height):
+        self.set_size_request(self.pixbuf.get_width(), round(skin_height * self.scale_y))
+
     def spot_at(self, x, y):
         return self.geometry.hotspot_at(x / self.scale_x, y / self.scale_y)
 
@@ -266,6 +271,8 @@ class RemoteWindow(Gtk.Window):
         self.status_label = Gtk.Label(label=READY_TEXT)
         self.status_label.set_line_wrap(True)
         self.toast_source_id = None
+        self.dock_source_id = None
+        self.docked = True
         self.context_menu = None
         self.skin, self.keypad = self.load_views(skin_path)
         self.set_window_icon(icon_file)
@@ -302,9 +309,15 @@ class RemoteWindow(Gtk.Window):
             pixbuf, geometry, self.on_hotspot_pressed, self.stop_repeat, self.queue_key, self.show_context_menu
         )
 
-    def place_in_bottom_right_corner(self):
+    def work_area(self):
         display = self.get_display()
-        area = (display.get_primary_monitor() or display.get_monitor(0)).get_workarea()
+        gdk_window = self.get_window()
+        if gdk_window is not None:
+            return display.get_monitor_at_window(gdk_window).get_workarea()
+        return (display.get_primary_monitor() or display.get_monitor(0)).get_workarea()
+
+    def place_in_bottom_right_corner(self):
+        area = self.work_area()
         size = self.get_preferred_size().natural_size
         self.set_gravity(Gdk.Gravity.SOUTH_EAST)
         self.move(area.x + area.width - size.width, area.y + area.height - size.height)
@@ -328,7 +341,40 @@ class RemoteWindow(Gtk.Window):
         overlay.add_overlay(self.place_keypad())
         overlay.add_overlay(self.status_label)
         overlay.set_overlay_pass_through(self.status_label, True)
+        self.update_height()
+        self.connect("configure-event", self.on_configure)
         return overlay
+
+    def update_height(self):
+        expanded = not self.docked or self.keypad.get_visible()
+        self.set_gravity(Gdk.Gravity.SOUTH_EAST if self.docked else Gdk.Gravity.NORTH_WEST)
+        self.skin.set_visible_height(self.skin.geometry.height if expanded else KEY_PANEL_BOTTOM)
+
+    def on_configure(self, window, event):
+        self.dock_source_id = remove_source(self.dock_source_id)
+        self.dock_source_id = GLib.timeout_add(DOCK_CHECK_DELAY_MS, self.update_docking)
+        return False
+
+    def corner_gap(self):
+        gdk_window = self.get_window()
+        if gdk_window is None:
+            return None
+        frame = gdk_window.get_frame_extents()
+        area = self.work_area()
+        return area.x + area.width - frame.x - frame.width, area.y + area.height - frame.y - frame.height
+
+    def update_docking(self):
+        self.dock_source_id = None
+        gap = self.corner_gap()
+        if gap is None:
+            return False
+        docked = max(abs(gap[0]), abs(gap[1])) <= DOCK_TOLERANCE
+        if docked and gap != (0, 0):
+            self.place_in_bottom_right_corner()
+        if docked != self.docked:
+            self.docked = docked
+            self.update_height()
+        return False
 
     def place_keypad(self):
         origin_x, origin_y = KEYPAD.origin
@@ -424,6 +470,7 @@ class RemoteWindow(Gtk.Window):
     def toggle_panel(self):
         if self.keypad is not None:
             self.keypad.set_visible(not self.keypad.get_visible())
+            self.update_height()
 
     def on_button_clicked(self, button, key):
         self.activate(key)
@@ -535,5 +582,6 @@ class RemoteWindow(Gtk.Window):
         self.closed = True
         self.stop_repeat()
         self.toast_source_id = remove_source(self.toast_source_id)
+        self.dock_source_id = remove_source(self.dock_source_id)
         self.drop_pending_keys()
         self.keys.put(STOP_SIGNAL)

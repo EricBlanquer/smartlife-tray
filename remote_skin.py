@@ -8,6 +8,7 @@ IMAGES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
 SKIN_FILE = os.path.join(IMAGES_DIR, "remote-skin.png")
 SKIN_WIDTH = 340
 SKIN_HEIGHT = 1496
+KEY_PANEL_BOTTOM = 890
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 PNG_HEADER_SIZE = 24
 PNG_HEADER_CHUNK = b"IHDR"

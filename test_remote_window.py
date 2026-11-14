@@ -19,7 +19,7 @@ from remote_layout import (
     REMOTE_KEYS,
     REMOTE_LAYOUT,
 )
-from remote_skin import HOTSPOTS, SKIN_HEIGHT, SKIN_WIDTH
+from remote_skin import HOTSPOTS, KEY_PANEL_BOTTOM, SKIN_HEIGHT, SKIN_WIDTH
 from remote_window import Gdk, GLib, RemoteWindow
 
 WAIT_SECONDS = 2
@@ -313,13 +313,60 @@ class SkinWindowTests(unittest.TestCase):
         self.press(x, y, view)
         self.release(x, y, view)
 
-    def test_photo_is_shown_reduced_without_margins(self):
-        size = (round(SKIN_WIDTH * remote_window.SKIN_DISPLAY_SCALE), round(SKIN_HEIGHT * remote_window.SKIN_DISPLAY_SCALE))
-        self.assertEqual(self.window.skin.get_size_request(), size)
-        self.assertEqual((self.window.skin.pixbuf.get_width(), self.window.skin.pixbuf.get_height()), size)
+    def displayed(self, height):
+        return round(SKIN_WIDTH * remote_window.SKIN_DISPLAY_SCALE), round(height * remote_window.SKIN_DISPLAY_SCALE)
+
+    def place_freely(self):
+        with patch.object(self.window, "corner_gap", return_value=(120, 80)):
+            self.window.update_docking()
+
+    def test_docked_photo_hides_the_handle_without_margins(self):
+        self.assertEqual((self.window.skin.pixbuf.get_width(), self.window.skin.pixbuf.get_height()), self.displayed(SKIN_HEIGHT))
+        self.assertEqual(self.window.skin.get_size_request(), self.displayed(KEY_PANEL_BOTTOM))
         self.assertEqual(self.window.get_border_width(), 0)
-        drain_events()
-        self.assertEqual(self.window.get_size(), size)
+        self.assertTrue(wait_until(lambda: self.window.get_size() == self.displayed(KEY_PANEL_BOTTOM)))
+
+    def test_docked_remote_rises_while_the_keypad_is_shown(self):
+        self.assertTrue(self.window.docked)
+        self.window.toggle_panel()
+        self.assertEqual(self.window.skin.get_size_request(), self.displayed(SKIN_HEIGHT))
+        self.assertEqual(self.window.get_gravity(), Gdk.Gravity.SOUTH_EAST)
+        self.window.toggle_panel()
+        self.assertEqual(self.window.skin.get_size_request(), self.displayed(KEY_PANEL_BOTTOM))
+        self.assertEqual(self.window.get_gravity(), Gdk.Gravity.SOUTH_EAST)
+
+    def test_moved_remote_shows_its_handle_and_stays_still(self):
+        self.place_freely()
+        self.assertFalse(self.window.docked)
+        self.assertEqual(self.window.get_gravity(), Gdk.Gravity.NORTH_WEST)
+        self.assertEqual(self.window.skin.get_size_request(), self.displayed(SKIN_HEIGHT))
+        for _ in range(2):
+            self.window.toggle_panel()
+            self.assertEqual(self.window.skin.get_size_request(), self.displayed(SKIN_HEIGHT))
+            self.assertEqual(self.window.get_gravity(), Gdk.Gravity.NORTH_WEST)
+
+    def test_remote_dropped_near_the_corner_docks_again(self):
+        self.place_freely()
+        with (
+            patch.object(self.window, "corner_gap", return_value=(5, -3)),
+            patch.object(self.window, "place_in_bottom_right_corner") as place,
+        ):
+            self.window.update_docking()
+        self.assertTrue(self.window.docked)
+        place.assert_called_once_with()
+        self.assertEqual(self.window.skin.get_size_request(), self.displayed(KEY_PANEL_BOTTOM))
+
+    def test_docking_is_checked_once_the_move_settles(self):
+        with (
+            patch.object(remote_window, "DOCK_CHECK_DELAY_MS", 30),
+            patch.object(self.window, "update_docking", return_value=False) as update,
+        ):
+            for _ in range(3):
+                self.window.on_configure(self.window, None)
+            self.assertTrue(wait_until(lambda: update.call_count == 1))
+            time.sleep(0.06)
+            drain_events()
+        self.assertEqual(update.call_count, 1)
 
     def test_photo_replaces_the_grid_and_hides_the_extra_keys(self):
         self.assertIsNotNone(self.window.skin)
@@ -327,12 +374,13 @@ class SkinWindowTests(unittest.TestCase):
         self.assertEqual(self.window.buttons, {})
         self.assertIs(self.window.keypad.get_parent(), self.window.skin.get_parent())
 
-    def test_keypad_covers_the_handle_without_resizing_the_window(self):
+    def test_keypad_covers_the_handle_of_a_moved_remote_without_resizing_it(self):
         keypad = self.window.keypad
         scale = remote_window.SKIN_DISPLAY_SCALE
         size = (round(KEYPAD.width * scale), round(KEYPAD.height * scale))
         self.assertEqual((keypad.pixbuf.get_width(), keypad.pixbuf.get_height()), size)
-        drain_events()
+        self.place_freely()
+        self.assertTrue(wait_until(lambda: self.window.get_size() == self.displayed(SKIN_HEIGHT)))
         window_size = self.window.get_size()
         self.window.toggle_panel()
         drain_events()
