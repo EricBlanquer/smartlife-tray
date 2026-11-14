@@ -138,8 +138,7 @@ Un échec affiche un message et permet de réessayer.
 **Télévision → Télécommande…** ouvre une fenêtre qui reproduit la télécommande : marche/arrêt, source,
 accueil, menu, guide, infos, flèches et OK, retour, quitter, volume, muet, chaînes, lecture, chiffres, mode
 Ambiant, micro, Netflix, Prime Video et Rakuten TV.
-Elle s'ouvre collée au coin inférieur droit de la zone de travail de l'écran principal, au-dessus du panneau,
-et y reste ancrée quand elle s'agrandit.
+Elle s'ouvre dans le coin inférieur droit de la zone de travail de l'écran principal, au-dessus du panneau.
 Les touches sont décrites une seule fois dans `remote_layout.py`, partagé avec la page web.
 
 Les touches partent sur une connexion WebSocket gardée ouverte, pour réagir sans délai.
@@ -164,10 +163,13 @@ Tant que la fenêtre a le focus, elle est réservée sur tout l'écran (`global_
 volume même hors de la télécommande ; cliquer dans une autre fenêtre lui rend son défilement.
 **123** affiche ou masque, sur le manche de la télécommande au-dessus du logo, un pavé avec les autres touches et
 les chiffres.
-Tant que la fenêtre est ancrée au coin inférieur droit, son manche est masqué (coupe à `KEY_PANEL_BOTTOM`) et la
-télécommande remonte pour l'afficher avec le pavé.
-Déplacée ailleurs, elle s'affiche entière et le pavé ne la déplace plus ; relâchée à moins de 8 pixels du coin,
-elle s'y ancre de nouveau.
+La fenêtre garde toujours la taille de la télécommande entière.
+À l'ouverture, elle est placée plus bas que l'écran : seul le panneau de touches reste au-dessus du bord
+(`KEY_PANEL_BOTTOM`), et la partie qui dépasse sous la zone de travail n'est ni dessinée ni cliquable.
+**123** fait glisser la télécommande vers le haut en 0,2 s pour montrer le pavé, puis la redescend ; il en va de
+même partout où elle a été posée trop bas.
+Entièrement visible, elle ne bouge pas, et déplacée pendant que le pavé est affiché, elle reste où elle a été posée.
+Sans les animations du bureau (`gtk-enable-animations`), elle change de position d'un coup.
 Ambient envoie `KEY_AMBIENT` et le micro `KEY_MIC`.
 Netflix, Prime Video et Rakuten TV lancent leur application par son identifiant (`*_APP_ID` dans
 `remote_layout.py`) sur la même connexion WebSocket ; si elle n'est pas installée, la TV ouvre sa page

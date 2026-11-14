@@ -5,8 +5,14 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import cairo
+import gi
+
+gi.require_version("GdkX11", "3.0")
+
+from gi.repository import GdkX11
 from Xlib import X, display
-from Xlib.ext import xtest
+from Xlib.ext import shape, xtest
 
 import remote_window
 import smartlife_tray as tray
@@ -27,6 +33,7 @@ from remote_window import Gdk, GLib, RemoteWindow
 
 WAIT_SECONDS = 2
 SETTLE_SECONDS = 0.15
+ANIMATIONS_SETTING = "gtk-enable-animations"
 WHEEL_UP_BUTTON = 4
 PRIMARY_BUTTON = 1
 OPAQUE_GREY = 0x808080FF
@@ -78,12 +85,12 @@ def press_event(x, y, button=Gdk.BUTTON_PRIMARY, event_type=Gdk.EventType.BUTTON
     return SimpleNamespace(x=x, y=y, x_root=x + 1000.5, y_root=y + 500.5, time=42, button=button, type=event_type)
 
 
-def frame_corner(window):
+def frame(window):
     gdk_window = window.get_window()
     if gdk_window is None or not window.get_mapped():
         return None
-    frame = gdk_window.get_frame_extents()
-    return frame.x + frame.width, frame.y + frame.height
+    extents = gdk_window.get_frame_extents()
+    return extents.x, extents.y, extents.x + extents.width, extents.y + extents.height
 
 
 def work_area_corner(window):
@@ -101,13 +108,19 @@ class CornerPlacementTests(unittest.TestCase):
         self.addCleanup(window.destroy)
         return window
 
-    def test_window_opens_against_the_bottom_right_corner_of_the_work_area(self):
+    def test_button_grid_opens_against_the_bottom_right_corner_of_the_work_area(self):
+        window = self.open_window(None)
+        self.assertTrue(wait_until(lambda: frame(window) is not None and frame(window)[2:] == work_area_corner(window)))
+
+    def test_photo_opens_in_the_corner_with_only_its_keys_above_the_bottom_edge(self):
         with tempfile.TemporaryDirectory() as directory:
-            for skin_path in (None, make_skin(directory)):
-                with self.subTest(photo=skin_path is not None):
-                    window = self.open_window(skin_path)
-                    self.assertEqual(window.get_gravity(), Gdk.Gravity.SOUTH_EAST)
-                    self.assertTrue(wait_until(lambda: frame_corner(window) == work_area_corner(window)))
+            window = self.open_window(make_skin(directory))
+            right, bottom = work_area_corner(window)
+            keys_height = round(KEY_PANEL_BOTTOM * remote_window.SKIN_DISPLAY_SCALE)
+            self.assertTrue(wait_until(
+                lambda: frame(window) is not None and (frame(window)[1], frame(window)[2]) == (bottom - keys_height, right)
+            ))
+            self.assertGreater(frame(window)[3], bottom)
 
 
 class RemoteLayoutTests(unittest.TestCase):
@@ -326,72 +339,245 @@ class SkinWindowTests(unittest.TestCase):
         self.press(x, y, view)
         self.release(x, y, view)
 
-    def displayed(self, height):
-        return round(SKIN_WIDTH * remote_window.SKIN_DISPLAY_SCALE), round(height * remote_window.SKIN_DISPLAY_SCALE)
+    def full_size(self):
+        scale = remote_window.SKIN_DISPLAY_SCALE
+        return round(SKIN_WIDTH * scale), round(SKIN_HEIGHT * scale)
 
-    def place_freely(self):
-        with patch.object(self.window, "corner_gap", return_value=(120, 80)):
-            self.window.update_docking()
+    def tucked_height(self):
+        return round(KEY_PANEL_BOTTOM * remote_window.SKIN_DISPLAY_SCALE)
 
-    def test_docked_photo_hides_the_handle_without_margins(self):
-        self.assertEqual((self.window.skin.pixbuf.get_width(), self.window.skin.pixbuf.get_height()), self.displayed(SKIN_HEIGHT))
-        self.assertEqual(self.window.skin.get_size_request(), self.displayed(KEY_PANEL_BOTTOM))
+    def area_bottom(self):
+        return work_area_corner(self.window)[1]
+
+    def top(self):
+        return self.window.frame_position()[1]
+
+    def rests_at(self, top):
+        return wait_until(lambda: self.window.slide_tick_id is None and self.top() == top)
+
+    def drag_to(self, x, y):
+        self.window.move(x, y)
+        self.assertTrue(wait_until(lambda: self.window.frame_position() == (x, y)))
+        self.window.settle()
+
+    def shape(self, kind=shape.SK.Bounding):
+        self.window.get_display().sync()
+        client = display.Display()
+        self.addCleanup(client.close)
+        window = client.create_resource_object("window", GdkX11.X11Window.get_xid(self.window.get_window()))
+        return [
+            (rectangle.x, rectangle.y, rectangle.width, rectangle.height)
+            for rectangle in window.shape_get_rectangles(kind).rectangles
+        ]
+
+    def recorded_tops(self):
+        recorder = patch.object(self.window, "move", side_effect=self.window.move)
+        self.addCleanup(recorder.stop)
+        return recorder.start()
+
+    def without_animations(self):
+        settings = self.window.get_settings()
+        enabled = settings.get_property(ANIMATIONS_SETTING)
+        self.addCleanup(settings.set_property, ANIMATIONS_SETTING, enabled)
+        settings.set_property(ANIMATIONS_SETTING, False)
+
+    def test_remote_opens_with_its_handle_below_the_work_area(self):
+        width, height = self.full_size()
+        self.assertEqual(self.window.skin.get_size_request(), (width, height))
         self.assertEqual(self.window.get_border_width(), 0)
-        self.assertTrue(wait_until(lambda: self.window.get_size() == self.displayed(KEY_PANEL_BOTTOM)))
+        self.assertTrue(wait_until(lambda: self.window.get_size() == (width, height)))
+        right, bottom = work_area_corner(self.window)
+        self.assertTrue(wait_until(lambda: self.window.frame_position() == (right - width, bottom - self.tucked_height())))
+        self.assertEqual(self.shape(), [(0, 0, width, self.tucked_height())])
+        self.assertEqual(self.shape(shape.SK.Input), [(0, 0, width, self.tucked_height())])
+        self.assertEqual(
+            self.window.status_label.get_margin_bottom(), remote_window.TOAST_MARGIN + height - self.tucked_height()
+        )
 
-    def test_docked_remote_rises_while_the_keypad_is_shown(self):
-        self.assertTrue(self.window.docked)
+    def test_keypad_lifts_the_tucked_remote_then_lowers_it_back(self):
+        width, height = self.full_size()
+        rest = self.area_bottom() - self.tucked_height()
+        self.assertTrue(self.rests_at(rest))
         self.window.toggle_panel()
-        self.assertEqual(self.window.skin.get_size_request(), self.displayed(SKIN_HEIGHT))
-        self.assertEqual(self.window.get_gravity(), Gdk.Gravity.SOUTH_EAST)
+        self.assertTrue(self.window.keypad.get_visible())
+        self.assertTrue(self.rests_at(self.area_bottom() - height))
+        self.assertEqual(self.shape(), [(0, 0, width, height)])
+        self.assertEqual(self.window.get_size(), (width, height))
         self.window.toggle_panel()
-        self.assertEqual(self.window.skin.get_size_request(), self.displayed(KEY_PANEL_BOTTOM))
-        self.assertEqual(self.window.get_gravity(), Gdk.Gravity.SOUTH_EAST)
+        self.assertTrue(self.rests_at(rest))
+        self.assertFalse(self.window.keypad.get_visible())
+        self.assertEqual(self.shape(), [(0, 0, width, self.tucked_height())])
+        self.assertEqual(self.window.get_size(), (width, height))
 
-    def test_moved_remote_shows_its_handle_and_stays_still(self):
-        self.place_freely()
-        self.assertFalse(self.window.docked)
-        self.assertEqual(self.window.get_gravity(), Gdk.Gravity.NORTH_WEST)
-        self.assertEqual(self.window.skin.get_size_request(), self.displayed(SKIN_HEIGHT))
-        for _ in range(2):
+    def test_lift_slides_instead_of_jumping(self):
+        rest = self.area_bottom() - self.tucked_height()
+        lifted = self.area_bottom() - self.full_size()[1]
+        self.assertTrue(self.rests_at(rest))
+        recorded = self.recorded_tops()
+        self.window.toggle_panel()
+        self.assertEqual(self.top(), rest)
+        self.assertTrue(self.rests_at(lifted))
+        rising = [entry.args[1] for entry in recorded.call_args_list]
+        self.assertGreaterEqual(len(rising), 3)
+        self.assertEqual(rising, sorted(rising, reverse=True))
+        self.assertTrue(any(lifted < top < rest for top in rising))
+        self.assertEqual(rising[-1], lifted)
+        recorded.reset_mock()
+        self.window.toggle_panel()
+        self.assertTrue(self.window.keypad.get_visible())
+        self.assertTrue(self.rests_at(rest))
+        self.assertFalse(self.window.keypad.get_visible())
+        falling = [entry.args[1] for entry in recorded.call_args_list]
+        self.assertEqual(falling, sorted(falling))
+        self.assertTrue(any(lifted < top < rest for top in falling))
+        self.assertEqual(falling[-1], rest)
+
+    def test_slide_reverses_from_where_it_is(self):
+        rest = self.area_bottom() - self.tucked_height()
+        self.assertTrue(self.rests_at(rest))
+        recorded = self.recorded_tops()
+        self.window.toggle_panel()
+        self.assertTrue(wait_until(lambda: recorded.call_count >= 2))
+        halfway = recorded.call_args.args[1]
+        recorded.reset_mock()
+        self.window.toggle_panel()
+        self.assertTrue(self.rests_at(rest))
+        falling = [entry.args[1] for entry in recorded.call_args_list]
+        self.assertLess(halfway, rest)
+        self.assertGreaterEqual(falling[0], halfway)
+        self.assertEqual(falling, sorted(falling))
+        self.assertFalse(self.window.keypad.get_visible())
+
+    def test_remote_jumps_when_animations_are_disabled(self):
+        rest = self.area_bottom() - self.tucked_height()
+        self.assertTrue(self.rests_at(rest))
+        self.without_animations()
+        recorded = self.recorded_tops()
+        self.window.toggle_panel()
+        self.assertEqual([entry.args[1] for entry in recorded.call_args_list], [self.area_bottom() - self.full_size()[1]])
+        self.assertTrue(self.window.keypad.get_visible())
+        recorded.reset_mock()
+        self.window.toggle_panel()
+        self.assertEqual([entry.args[1] for entry in recorded.call_args_list], [rest])
+        self.assertFalse(self.window.keypad.get_visible())
+
+    def test_closing_during_a_slide_stops_it(self):
+        self.assertTrue(self.rests_at(self.area_bottom() - self.tucked_height()))
+        self.window.toggle_panel()
+        self.assertIsNotNone(self.window.slide_tick_id)
+        self.window.destroy()
+        self.assertIsNone(self.window.slide_tick_id)
+
+    def test_fully_visible_remote_stays_still(self):
+        width, height = self.full_size()
+        self.drag_to(200, 100)
+        self.assertEqual(self.shape(), [(0, 0, width, height)])
+        recorded = self.recorded_tops()
+        for visible in (True, False):
             self.window.toggle_panel()
-            self.assertEqual(self.window.skin.get_size_request(), self.displayed(SKIN_HEIGHT))
-            self.assertEqual(self.window.get_gravity(), Gdk.Gravity.NORTH_WEST)
+            self.assertEqual(self.window.keypad.get_visible(), visible)
+            self.assertIsNone(self.window.slide_tick_id)
+            self.assertEqual({entry.args for entry in recorded.call_args_list}, {(200, 100)})
+        self.assertEqual(self.window.frame_position(), (200, 100))
 
-    def test_remote_dropped_near_the_corner_docks_again(self):
-        self.place_freely()
-        with (
-            patch.object(self.window, "corner_gap", return_value=(5, -3)),
-            patch.object(self.window, "place_in_bottom_right_corner") as place,
-        ):
-            self.window.update_docking()
-        self.assertTrue(self.window.docked)
-        place.assert_called_once_with()
-        self.assertEqual(self.window.skin.get_size_request(), self.displayed(KEY_PANEL_BOTTOM))
+    def test_moved_remote_below_the_edge_is_lifted_too(self):
+        width, height = self.full_size()
+        overflow = 120
+        rest = self.area_bottom() - height + overflow
+        self.drag_to(200, rest)
+        self.assertEqual(self.shape(), [(0, 0, width, height - overflow)])
+        self.window.toggle_panel()
+        self.assertTrue(self.rests_at(rest - overflow))
+        self.assertEqual(self.window.frame_position()[0], 200)
+        self.window.toggle_panel()
+        self.assertTrue(self.rests_at(rest))
+        self.assertEqual(self.shape(), [(0, 0, width, height - overflow)])
 
-    def test_corner_refused_by_the_window_manager_is_not_requested_again(self):
+    def test_moving_the_lifted_remote_cancels_its_return(self):
+        self.assertTrue(self.rests_at(self.area_bottom() - self.tucked_height()))
+        self.window.toggle_panel()
+        self.assertTrue(self.rests_at(self.area_bottom() - self.full_size()[1]))
+        self.drag_to(300, 150)
+        self.window.toggle_panel()
+        self.assertFalse(self.window.keypad.get_visible())
+        self.assertIsNone(self.window.slide_tick_id)
+        self.assertEqual(self.window.frame_position(), (300, 150))
+
+    def test_open_remote_dropped_below_the_edge_is_lifted_again(self):
+        height = self.full_size()[1]
+        self.drag_to(200, 100)
+        self.window.toggle_panel()
+        dropped = self.area_bottom() - height + 90
+        self.drag_to(200, dropped)
+        self.assertTrue(self.rests_at(dropped - 90))
+        self.window.toggle_panel()
+        self.assertTrue(self.rests_at(dropped))
+
+    def test_clip_follows_the_window_while_it_is_dragged(self):
+        width, height = self.full_size()
+        top = self.area_bottom() - height + 200
+        self.window.move(200, top)
+        self.assertTrue(wait_until(lambda: self.window.frame_position() == (200, top)))
+        self.window.on_configure(self.window, None)
+        self.assertEqual(self.shape(), [(0, 0, width, height - 200)])
+        self.assertEqual(self.window.status_label.get_margin_bottom(), remote_window.TOAST_MARGIN + 200)
+
+    def test_clip_is_applied_again_once_the_window_is_mapped(self):
+        self.window.clip_height = self.tucked_height() + 30
+        self.window.on_map(self.window)
+        self.assertEqual(self.shape(shape.SK.Input), [(0, 0, self.full_size()[0], self.tucked_height() + 30)])
+
+    def test_new_clip_requests_a_frame(self):
+        self.assertTrue(self.rests_at(self.area_bottom() - self.tucked_height()))
+        with patch.object(self.window, "queue_draw") as queue_draw:
+            self.window.clip(self.tucked_height())
+            queue_draw.assert_not_called()
+            self.window.clip(self.tucked_height() + 50)
+            queue_draw.assert_called_once_with()
+
+    def test_transparent_window_is_clipped_by_drawing_and_by_its_input_area(self):
+        width, height = self.full_size()
+        visible = self.tucked_height() + 50
+        self.assertTrue(self.rests_at(self.area_bottom() - self.tucked_height()))
+        self.window.transparent = True
+        self.window.clip(visible)
+        self.assertEqual(self.shape(shape.SK.Input), [(0, 0, width, visible)])
+        self.assertEqual(self.shape(), [(0, 0, width, self.tucked_height())])
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
+        context = cairo.Context(surface)
+        context.set_source_rgba(1, 1, 1, 1)
+        context.paint()
+        self.assertFalse(self.window.on_draw_clip(self.window, context))
+        surface.flush()
+        alpha = [surface.get_data()[row * surface.get_stride() + ALPHA_CHANNEL] for row in (0, visible - 1, visible, height - 1)]
+        self.assertEqual(alpha, [255, 255, 0, 0])
+        self.assertEqual(context.get_operator(), cairo.OPERATOR_OVER)
+
+    def test_position_is_checked_once_the_move_settles(self):
         with (
-            patch.object(self.window, "corner_gap", return_value=(3, 3)),
-            patch.object(self.window, "place_in_bottom_right_corner") as place,
+            patch.object(remote_window, "SETTLE_DELAY_MS", 30),
+            patch.object(self.window, "settle", return_value=False) as settled,
         ):
             for _ in range(3):
-                self.window.update_docking()
-        place.assert_called_once_with()
-        self.assertTrue(self.window.docked)
+                self.window.on_configure(self.window, None)
+            self.assertTrue(wait_until(lambda: settled.call_count == 1))
+            time.sleep(0.06)
+            drain_events()
+        self.assertEqual(settled.call_count, 1)
 
-    def test_docking_waits_for_the_end_of_a_drag(self):
-        with (
-            patch.object(remote_window, "DOCK_CHECK_DELAY_MS", 20),
-            patch.object(self.window, "dragging", return_value=True),
-            patch.object(self.window, "corner_gap", return_value=(120, 80)) as gap,
-        ):
-            self.window.update_docking()
+    def test_position_check_waits_for_the_end_of_a_drag(self):
+        self.assertTrue(self.rests_at(self.area_bottom() - self.tucked_height()))
+        self.window.toggle_panel()
+        self.assertTrue(self.rests_at(self.area_bottom() - self.full_size()[1]))
+        self.window.move(300, 150)
+        self.assertTrue(wait_until(lambda: self.window.frame_position() == (300, 150)))
+        with patch.object(remote_window, "SETTLE_DELAY_MS", 20), patch.object(self.window, "dragging", return_value=True):
+            self.window.settle()
             settle()
-            gap.assert_not_called()
-            self.assertTrue(self.window.docked)
-            self.assertIsNotNone(self.window.dock_source_id)
+            self.assertEqual(self.window.lift, self.full_size()[1] - self.tucked_height())
+            self.assertIsNotNone(self.window.settle_source_id)
             self.window.dragging.return_value = False
-            self.assertTrue(wait_until(lambda: not self.window.docked))
+            self.assertTrue(wait_until(lambda: self.window.lift == 0))
 
     def test_held_primary_button_is_seen_as_a_drag(self):
         self.assertTrue(wait_until(lambda: self.window.get_window() is not None))
@@ -408,31 +594,18 @@ class SkinWindowTests(unittest.TestCase):
             client.sync()
         self.assertFalse(self.window.dragging())
 
-    def test_docking_is_checked_once_the_move_settles(self):
-        with (
-            patch.object(remote_window, "DOCK_CHECK_DELAY_MS", 30),
-            patch.object(self.window, "update_docking", return_value=False) as update,
-        ):
-            for _ in range(3):
-                self.window.on_configure(self.window, None)
-            self.assertTrue(wait_until(lambda: update.call_count == 1))
-            time.sleep(0.06)
-            drain_events()
-        self.assertEqual(update.call_count, 1)
-
     def test_photo_replaces_the_grid_and_hides_the_extra_keys(self):
         self.assertIsNotNone(self.window.skin)
         self.assertFalse(self.window.keypad.get_visible())
         self.assertEqual(self.window.buttons, {})
         self.assertIs(self.window.keypad.get_parent(), self.window.skin.get_parent())
 
-    def test_keypad_covers_the_handle_of_a_moved_remote_without_resizing_it(self):
+    def test_keypad_covers_the_handle_without_resizing_the_window(self):
         keypad = self.window.keypad
         scale = remote_window.SKIN_DISPLAY_SCALE
         size = (round(KEYPAD.width * scale), round(KEYPAD.height * scale))
         self.assertEqual((keypad.pixbuf.get_width(), keypad.pixbuf.get_height()), size)
-        self.place_freely()
-        self.assertTrue(wait_until(lambda: self.window.get_size() == self.displayed(SKIN_HEIGHT)))
+        self.drag_to(200, 100)
         window_size = self.window.get_size()
         self.window.toggle_panel()
         drain_events()
@@ -492,7 +665,7 @@ class SkinWindowTests(unittest.TestCase):
         self.click(70, 196)
         self.assertTrue(self.window.keypad.get_visible())
         self.click(70, 196)
-        self.assertFalse(self.window.keypad.get_visible())
+        self.assertTrue(wait_until(lambda: not self.window.keypad.get_visible()))
         drain_events()
         self.tv.send_key.assert_not_called()
 
