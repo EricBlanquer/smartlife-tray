@@ -46,8 +46,12 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 .remote {
-  max-width: 420px;
+  max-width: 820px;
   margin: 0 auto;
   padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
 }
@@ -70,10 +74,64 @@ body {
   color: var(--muted);
 }
 
+.layout {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.remote-view {
+  flex: 1 1 320px;
+  max-width: 420px;
+}
+
+.remote-view.has-skin {
+  flex-basis: 300px;
+  max-width: 340px;
+}
+
+.panel {
+  flex: 1 1 280px;
+  max-width: 420px;
+}
+
 .pad {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+
+.skin {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.hotspot {
+  fill: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: hover) {
+  .hotspot:hover {
+    fill: rgba(255, 255, 255, 0.3);
+  }
+}
+
+.hotspot:active,
+.hotspot.pressed {
+  fill: rgba(0, 0, 0, 0.2);
+}
+
+.hotspot.busy {
+  cursor: default;
+  fill: rgba(0, 0, 0, 0.15);
 }
 
 .pad button {
@@ -102,7 +160,7 @@ body {
   outline-offset: 2px;
 }
 
-.pad button:disabled {
+.pad button.busy {
   cursor: default;
   opacity: 0.6;
 }

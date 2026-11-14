@@ -243,6 +243,7 @@ class TelevisionTests(unittest.TestCase):
 
 
 SOCKET_TIMEOUT_SECONDS = 2
+MASKED_PONG_SIZE = 7
 
 
 class TlsLikeSocket(socket.socket):
@@ -331,7 +332,8 @@ class RemoteKeyTests(unittest.TestCase):
         self.assertEqual(len(self.remotes), 1)
         self.remotes[0].send_key.assert_called_with("KEY_DOWN", key_press_delay=0)
         pongs = self.sockets[0].recv(1024)
-        self.assertEqual(pongs.count(bytes((0x80 | websocket.ABNF.OPCODE_PONG,))), 3)
+        self.assertEqual(len(pongs), 3 * MASKED_PONG_SIZE)
+        self.assertEqual(pongs[::MASKED_PONG_SIZE], bytes((0x80 | websocket.ABNF.OPCODE_PONG,)) * 3)
 
     def test_close_frame_from_the_tv_replaces_the_connection(self):
         self.tv.send_key("KEY_UP")

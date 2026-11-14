@@ -20,6 +20,7 @@ import unicodedata
 import tinytuya
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from app_paths import APP_ID, CONFIG_DIR
+from remote_skin import skin_file
 from remote_window import RemoteWindow
 from television import Television
 
@@ -1272,7 +1273,9 @@ class TrayApplication:
 
     def on_tv_remote_clicked(self, item):
         if self.remote_window is None:
-            self.remote_window = RemoteWindow(self.tv, self.toggle_tv_power, ICON_FILE)
+            self.remote_window = RemoteWindow(
+                self.tv, self.toggle_tv_power, ICON_FILE, skin_file(CONFIG_DIR)
+            )
             self.remote_window.connect("destroy", self.on_remote_window_destroyed)
         self.remote_window.present()
 

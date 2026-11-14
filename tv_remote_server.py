@@ -11,7 +11,8 @@ from http import HTTPStatus
 from urllib.parse import urlsplit
 
 from app_paths import CONFIG_DIR
-from remote_layout import POWER_ACTION, REMOTE_KEYS, REMOTE_LAYOUT
+from remote_layout import EXTRA_LAYOUT, PANEL_ACTION, POWER_ACTION, REMOTE_KEYS, REMOTE_LAYOUT
+from remote_skin import skin_file, web_skin
 from television import CONFIG_FILENAME, Television
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -24,6 +25,8 @@ LAYOUT_PATH = "/api/layout"
 STATE_PATH = "/api/state"
 KEY_PATH = "/api/key"
 POWER_PATH = "/api/power"
+SKIN_PATH = "/remote-skin.png"
+SKIN_CONTENT_TYPE = "image/png"
 STATIC_FILES = {
     "/": (os.path.join(WEB_DIR, "remote.html"), "text/html; charset=utf-8"),
     "/remote.css": (os.path.join(WEB_DIR, "remote.css"), "text/css; charset=utf-8"),
@@ -63,14 +66,36 @@ class RemoteRequestHandler(http.server.BaseHTTPRequestHandler):
             return
         path = urlsplit(self.path).path
         if path == LAYOUT_PATH:
-            self.send_json(HTTPStatus.OK, {"layout": REMOTE_LAYOUT, "power": POWER_ACTION})
+            self.send_json(HTTPStatus.OK, self.layout())
         elif path == STATE_PATH:
             self.server.tv.refresh()
             self.send_json(HTTPStatus.OK, {"on": self.server.tv.is_on})
         elif path in STATIC_FILES:
             self.send_file(*STATIC_FILES[path])
+        elif path == SKIN_PATH:
+            self.send_skin()
         else:
             self.send_json_error(HTTPStatus.NOT_FOUND, "Not found")
+
+    def send_skin(self):
+        path = self.skin_path()
+        if path is None:
+            self.send_json_error(HTTPStatus.NOT_FOUND, "Not found")
+        else:
+            self.send_file(path, SKIN_CONTENT_TYPE)
+
+    def skin_path(self):
+        return skin_file(self.server.tv.config_dir)
+
+    def layout(self):
+        skin = {**web_skin(), "image": SKIN_PATH} if self.skin_path() else None
+        return {
+            "layout": REMOTE_LAYOUT,
+            "extra": EXTRA_LAYOUT,
+            "power": POWER_ACTION,
+            "panel": PANEL_ACTION,
+            "skin": skin,
+        }
 
     def do_POST(self):
         if not self.host_allowed() or not self.origin_allowed():

@@ -2,12 +2,15 @@
 
 (() => {
   const NBSP = ' ';
+  const SVG_NS = 'http://www.w3.org/2000/svg';
   const REPEAT_DELAY_MS = 400;
   const REPEAT_INTERVAL_MS = 150;
   const STATE_POLL_MS = 5000;
   const MAX_PENDING_KEYS = 8;
   const PRIMARY_BUTTON = 0;
   const KEYBOARD_CLICK_DETAIL = 0;
+  const WHEEL_UP_INDEX = 0;
+  const WHEEL_DOWN_INDEX = 1;
   const JSON_HEADERS = { 'Content-Type': 'application/json' };
   const STATE_LABELS = new Map([
     [true, `● Télévision${NBSP}: allumée`],
@@ -15,10 +18,12 @@
     [null, `Télévision${NBSP}: état inconnu`],
   ]);
 
-  const pad = document.getElementById('pad');
+  const remote = document.getElementById('remote');
+  const panel = document.getElementById('panel');
   const stateLine = document.getElementById('state');
   const message = document.getElementById('message');
   const shortcuts = new Map();
+  const actions = { power: null, panel: null };
   let pendingKeys = [];
   let sending = false;
   let powerBusy = false;
@@ -102,12 +107,19 @@
     }
   }
 
-  async function togglePower(button) {
+  function setPowerBusy(busy) {
+    powerBusy = busy;
+    document.querySelectorAll(`[data-key="${actions.power}"]`).forEach((element) => {
+      element.classList.toggle('busy', busy);
+      element.setAttribute('aria-disabled', String(busy));
+    });
+  }
+
+  async function togglePower() {
     if (powerBusy) {
       return;
     }
-    powerBusy = true;
-    button.disabled = true;
+    setPowerBusy(true);
     stateLine.textContent = tvOn ? 'Extinction en cours…' : 'Allumage en cours…';
     try {
       const state = await post('/api/power', {});
@@ -117,12 +129,25 @@
       showError(ex.message);
       renderState(null);
     } finally {
-      powerBusy = false;
-      button.disabled = false;
+      setPowerBusy(false);
     }
   }
 
-  function bindRepeat(button, key) {
+  function togglePanel() {
+    panel.hidden = !panel.hidden;
+  }
+
+  function activate(key) {
+    if (key === actions.power) {
+      togglePower();
+    } else if (key === actions.panel) {
+      togglePanel();
+    } else {
+      queueKey(key);
+    }
+  }
+
+  function bindRepeat(element, key) {
     let delayTimer = null;
     let repeatTimer = null;
     const stop = () => {
@@ -130,32 +155,41 @@
       clearInterval(repeatTimer);
       delayTimer = null;
       repeatTimer = null;
-      button.classList.remove('pressed');
+      element.classList.remove('pressed');
     };
-    button.addEventListener('pointerdown', (event) => {
+    element.addEventListener('pointerdown', (event) => {
       if (event.button !== PRIMARY_BUTTON) {
         return;
       }
       event.preventDefault();
       stop();
-      button.setPointerCapture(event.pointerId);
-      button.classList.add('pressed');
+      element.setPointerCapture(event.pointerId);
+      element.classList.add('pressed');
       queueKey(key);
       delayTimer = setTimeout(() => {
         repeatTimer = setInterval(() => queueKey(key), REPEAT_INTERVAL_MS);
       }, REPEAT_DELAY_MS);
     });
     ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((type) => {
-      button.addEventListener(type, stop);
+      element.addEventListener(type, stop);
     });
-    button.addEventListener('click', (event) => {
+    element.addEventListener('click', (event) => {
       if (event.detail === KEYBOARD_CLICK_DETAIL) {
         queueKey(key);
       }
     });
   }
 
-  function createButton(cell, powerAction) {
+  function bindActivation(element, key, repeat) {
+    element.dataset.key = key;
+    if (repeat) {
+      bindRepeat(element, key);
+    } else {
+      element.addEventListener('click', () => activate(key));
+    }
+  }
+
+  function createButton(cell) {
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = cell.label;
@@ -164,15 +198,63 @@
     if (cell.style) {
       button.classList.add(`style-${cell.style}`);
     }
-    if (cell.key === powerAction) {
-      button.addEventListener('click', () => togglePower(button));
-    } else if (cell.repeat) {
-      bindRepeat(button, cell.key);
-    } else {
-      button.addEventListener('click', () => queueKey(cell.key));
-    }
-    cell.web_keys.forEach((name) => shortcuts.set(name, cell));
+    bindActivation(button, cell.key, cell.repeat);
     return button;
+  }
+
+  function fillGrid(container, layout) {
+    layout.forEach((row) => {
+      row.forEach((cell) => {
+        container.appendChild(cell ? createButton(cell) : document.createElement('span'));
+      });
+    });
+  }
+
+  function createHotspot(spot) {
+    const path = document.createElementNS(SVG_NS, 'path');
+    const title = document.createElementNS(SVG_NS, 'title');
+    path.setAttribute('d', spot.path);
+    path.setAttribute('class', 'hotspot');
+    path.setAttribute('role', 'button');
+    path.setAttribute('aria-label', spot.title);
+    title.textContent = spot.title;
+    path.appendChild(title);
+    bindActivation(path, spot.key, spot.repeat);
+    if (spot.wheel) {
+      path.addEventListener('wheel', (event) => {
+        if (event.deltaY === 0) {
+          return;
+        }
+        event.preventDefault();
+        queueKey(spot.wheel[event.deltaY < 0 ? WHEEL_UP_INDEX : WHEEL_DOWN_INDEX]);
+      }, { passive: false });
+    }
+    return path;
+  }
+
+  function createSkin(skin) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    const image = document.createElementNS(SVG_NS, 'image');
+    svg.setAttribute('viewBox', `0 0 ${skin.width} ${skin.height}`);
+    svg.setAttribute('class', 'skin');
+    svg.setAttribute('role', 'group');
+    svg.setAttribute('aria-label', 'Télécommande');
+    image.setAttribute('href', skin.image);
+    image.setAttribute('width', skin.width);
+    image.setAttribute('height', skin.height);
+    svg.appendChild(image);
+    skin.hotspots.forEach((spot) => svg.appendChild(createHotspot(spot)));
+    return svg;
+  }
+
+  function registerShortcuts(layout) {
+    layout.forEach((row) => {
+      row.forEach((cell) => {
+        if (cell) {
+          cell.web_keys.forEach((name) => shortcuts.set(name, cell));
+        }
+      });
+    });
   }
 
   function onKeyDown(event) {
@@ -186,23 +268,29 @@
     }
     event.preventDefault();
     if (!event.repeat || cell.repeat) {
-      queueKey(cell.key);
+      activate(cell.key);
     }
   }
 
   async function start() {
     try {
-      const { layout, power } = await request('/api/layout');
-      layout.forEach((row) => {
-        row.forEach((cell) => {
-          pad.appendChild(cell ? createButton(cell, power) : document.createElement('span'));
-        });
-      });
+      const layout = await request('/api/layout');
+      actions.power = layout.power;
+      actions.panel = layout.panel;
+      registerShortcuts(layout.layout);
+      if (layout.skin) {
+        remote.classList.add('has-skin');
+        remote.appendChild(createSkin(layout.skin));
+        fillGrid(panel, layout.extra);
+      } else {
+        remote.classList.add('pad');
+        fillGrid(remote, layout.layout);
+      }
     } catch (ex) {
       showError(ex.message);
       return;
     }
-    pad.addEventListener('contextmenu', (event) => event.preventDefault());
+    document.querySelector('.layout').addEventListener('contextmenu', (event) => event.preventDefault());
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('visibilitychange', schedulePolling);
     schedulePolling();

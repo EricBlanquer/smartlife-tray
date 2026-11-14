@@ -135,27 +135,57 @@ Un échec affiche un message et permet de réessayer.
 
 **Télévision → Télécommande…** ouvre une fenêtre qui reproduit la télécommande : marche/arrêt, source,
 accueil, menu, guide, infos, flèches et OK, retour, quitter, volume, muet, chaînes, lecture et chiffres.
-La disposition est décrite une seule fois dans `remote_layout.py`, partagée avec la page web.
+Les touches sont décrites une seule fois dans `remote_layout.py`, partagé avec la page web.
 
 Les touches partent sur une connexion WebSocket gardée ouverte, pour réagir sans délai.
-Elle est rouverte si la TV l'a fermée ou après 60 s d'inactivité, et la touche est renvoyée une fois sur une nouvelle connexion si l'envoi échoue.
+La TV y envoie un ping toutes les 6 s : avant chaque touche, les messages en attente sont lus et les pings
+reçoivent leur pong, sans attendre de message de données.
+La connexion est rouverte si la TV l'a fermée ou après 60 s d'inactivité, et la touche est renvoyée une fois
+sur une nouvelle connexion si l'envoi échoue.
 Le bouton marche/arrêt relit l'état de la TV puis allume par Wake-on-LAN ou éteint, comme le menu.
 Maintenir une flèche ou le volume répète la touche ; un échec s'affiche sous les boutons et vide les touches en attente.
 
-Raccourcis clavier de la fenêtre :
+### Photo de la télécommande
+
+Avec `~/.config/smartlife-tray/remote-skin.png`, la fenêtre et la page web affichent la photo d'une
+Samsung One Remote, avec ses touches cliquables : marche/arrêt, anneau directionnel et OK, retour,
+accueil, lecture/pause, bascules VOL et CH (haut ou bas, molette de la souris acceptée).
+**123** ouvre le panneau des autres touches et des chiffres ; le micro et les pastilles de couleur restent inertes.
+
+La photo n'est pas versionnée : les zones (`remote_skin.py`) sont calibrées sur une photo produit précise,
+vérifiée par sa somme SHA-256. La télécharger depuis la fiche produit, puis la redresser, la recadrer et
+détourer son fond (Pillow requis) :
+
+```bash
+venv/bin/python prepare_remote_skin.py one-remote.jpg
+```
+
+Sans ce fichier, ou s'il n'a pas les dimensions attendues, la grille de boutons est affichée.
+
+### Raccourcis clavier
+
+Identiques dans la fenêtre et la page web :
 
 | Touche | Action |
 |--------|--------|
+| Veille | Marche/arrêt |
 | Flèches | Navigation (répétée tant que la touche est enfoncée) |
 | Entrée | OK |
 | Retour arrière | Retour |
 | Échap | Quitter |
 | Origine | Accueil |
+| Maison (page d'accueil) | Menu |
+| Espace | Lecture/pause |
 | `+` / `-` | Volume |
 | `m` | Muet |
 | Page haut / Page bas | Chaîne + / Chaîne − |
+| `c` | Liste des chaînes |
 | `s`, `g`, `i` | Source, guide, infos |
 | `0` à `9` | Chiffres |
+
+La touche veille n'atteint la fenêtre que si le bureau ne l'intercepte pas : sous Cinnamon, le raccourci
+« Mettre en veille » doit rester vide.
+Dans un navigateur, la touche maison peut être réservée à la page d'accueil du navigateur.
 
 ## Télécommande web
 
@@ -191,7 +221,7 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
-La configuration et le jeton se trouvent dans `~/.config/smartlife-tray/` de l'utilisateur du service.
+La configuration, le jeton et la photo se trouvent dans `~/.config/smartlife-tray/` de l'utilisateur du service.
 Le premier envoi de touche déclenche la demande d'autorisation **SmartLife** sur la TV, comme pour l'extinction.
 
 ## Tests

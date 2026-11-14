@@ -7,7 +7,10 @@ import unittest
 from unittest.mock import Mock, patch
 
 import tv_remote_server as server_module
-from remote_layout import POWER_ACTION, REMOTE_LAYOUT
+from PIL import Image
+
+from remote_layout import EXTRA_LAYOUT, PANEL_ACTION, POWER_ACTION, REMOTE_LAYOUT
+from remote_skin import SKIN_FILENAME, SKIN_HEIGHT, SKIN_WIDTH, web_skin
 
 LOCALHOST = "127.0.0.1"
 JSON_HEADERS = {"Content-Type": "application/json"}
@@ -15,8 +18,11 @@ JSON_HEADERS = {"Content-Type": "application/json"}
 
 class RemoteServerTests(unittest.TestCase):
     def setUp(self):
+        self.config = tempfile.TemporaryDirectory()
+        self.addCleanup(self.config.cleanup)
         self.tv = Mock()
         self.tv.is_on = True
+        self.tv.config_dir = self.config.name
         self.server = server_module.RemoteServer((LOCALHOST, 0), self.tv, ["remote.lan"])
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, args=(0.01,), daemon=True)
@@ -72,7 +78,13 @@ class RemoteServerTests(unittest.TestCase):
 
     def test_layout_and_live_state(self):
         response, body = self.request("GET", "/api/layout")
-        self.assertEqual(json.loads(body), {"layout": json.loads(json.dumps(REMOTE_LAYOUT)), "power": POWER_ACTION})
+        self.assertEqual(json.loads(body), json.loads(json.dumps({
+            "layout": REMOTE_LAYOUT,
+            "extra": EXTRA_LAYOUT,
+            "power": POWER_ACTION,
+            "panel": PANEL_ACTION,
+            "skin": None,
+        })))
         self.tv.refresh.side_effect = lambda: setattr(self.tv, "is_on", None)
         response, body = self.request("GET", "/api/state?ignored=1")
         self.assertEqual(json.loads(body), {"on": None})
@@ -175,6 +187,21 @@ class RemoteServerTests(unittest.TestCase):
         self.tv.toggle_power.side_effect = None
         response, _ = self.post("/api/power", {})
         self.assertEqual(response.status, 200)
+
+    def test_photo_is_offered_only_once_prepared(self):
+        response, _ = self.request("GET", "/remote-skin.png")
+        self.assertEqual(response.status, 404)
+        Image.new("RGBA", (SKIN_WIDTH, SKIN_HEIGHT)).save(f"{self.config.name}/{SKIN_FILENAME}", "PNG")
+        response, body = self.request("GET", "/remote-skin.png")
+        self.assertEqual((response.status, response.getheader("Content-Type")), (200, "image/png"))
+        self.assertTrue(body.startswith(b"\x89PNG"))
+        response, body = self.request("GET", "/api/layout")
+        self.assertEqual(json.loads(body)["skin"], json.loads(json.dumps({**web_skin(), "image": "/remote-skin.png"})))
+        Image.new("RGBA", (SKIN_WIDTH, SKIN_HEIGHT + 1)).save(f"{self.config.name}/{SKIN_FILENAME}", "PNG")
+        response, body = self.request("GET", "/api/layout")
+        self.assertIsNone(json.loads(body)["skin"])
+        response, _ = self.request("GET", "/remote-skin.png")
+        self.assertEqual(response.status, 404)
 
     def test_unknown_post_path_is_not_found(self):
         response, _ = self.post("/api/other", {})
