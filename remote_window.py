@@ -1,3 +1,4 @@
+import math
 import queue
 import threading
 
@@ -31,6 +32,8 @@ GRID_SPACING = 6
 BUTTON_WIDTH = 76
 BUTTON_HEIGHT = 44
 SKIN_DISPLAY_SCALE = 0.5
+ICON_SIZES = (16, 24, 32, 48, 64, 128)
+ICON_ANGLE_DEGREES = 45
 SVG_LOADER = "svg"
 TOAST_MARGIN = 8
 TOAST_MAX_WIDTH_CHARS = 20
@@ -110,6 +113,22 @@ def load_photo(path, geometry):
     return GdkPixbuf.Pixbuf.new_from_file(path).scale_simple(
         *display_size(geometry), GdkPixbuf.InterpType.HYPER
     )
+
+
+def tilted_icon(pixbuf, size):
+    angle = math.radians(ICON_ANGLE_DEGREES)
+    width, height = pixbuf.get_width(), pixbuf.get_height()
+    scale = size / (width * math.cos(angle) + height * math.sin(angle))
+    scaled = pixbuf.scale_simple(
+        max(1, round(width * scale)), max(1, round(height * scale)), GdkPixbuf.InterpType.HYPER
+    )
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
+    context = cairo.Context(surface)
+    context.translate(size / 2, size / 2)
+    context.rotate(angle)
+    Gdk.cairo_set_source_pixbuf(context, scaled, -scaled.get_width() / 2, -scaled.get_height() / 2)
+    context.paint()
+    return Gdk.pixbuf_get_from_surface(surface, 0, 0, size, size)
 
 
 def load_svg(data, geometry):
@@ -244,12 +263,12 @@ class RemoteWindow(Gtk.Window):
             for name in cell["gtk_keys"]
         }
         self.set_resizable(False)
-        self.set_icon_from_file(icon_file)
         self.status_label = Gtk.Label(label=READY_TEXT)
         self.status_label.set_line_wrap(True)
         self.toast_source_id = None
         self.context_menu = None
         self.skin, self.keypad = self.load_views(skin_path)
+        self.set_window_icon(icon_file)
         content = self.create_grid_view() if self.skin is None else self.create_photo_view()
         content.show_all()
         self.add(content)
@@ -261,6 +280,12 @@ class RemoteWindow(Gtk.Window):
         self.worker = threading.Thread(target=self.send_keys, daemon=True)
         self.worker.start()
         self.show_all()
+
+    def set_window_icon(self, icon_file):
+        if self.skin is None:
+            self.set_icon_from_file(icon_file)
+        else:
+            self.set_icon_list([tilted_icon(self.skin.pixbuf, size) for size in ICON_SIZES])
 
     def load_views(self, skin_path):
         if skin_path is None:

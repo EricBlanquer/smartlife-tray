@@ -168,6 +168,7 @@ les coordonnées de la photo ; la page web le reçoit sur `/remote-keypad.svg` e
 
 La fenêtre affiche la photo réduite de moitié (`SKIN_DISPLAY_SCALE`), sans marge ni barre de titre, sur un fond
 transparent quand le bureau est composité.
+Dans la barre des tâches, son icône est cette photo inclinée à 45° (`ICON_ANGLE_DEGREES`).
 Un clic maintenu hors des touches suivi d'un glisser la déplace ; le clic droit propose de la fermer, comme Alt+F4.
 L'état (connexion, échec, commande marche/arrêt) apparaît dans un bandeau sur le bas de la photo, qui laisse
 passer les clics et disparaît 5 s après un message final ; la page web ajuste la photo à la hauteur de l'écran.

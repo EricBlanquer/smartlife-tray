@@ -23,6 +23,8 @@ from remote_skin import HOTSPOTS, SKIN_HEIGHT, SKIN_WIDTH
 from remote_window import Gdk, GLib, RemoteWindow
 
 WAIT_SECONDS = 2
+OPAQUE_GREY = 0x808080FF
+ALPHA_CHANNEL = 3
 WAIT_STEP_SECONDS = 0.005
 
 
@@ -48,10 +50,15 @@ def key_event(name, state=0):
 
 def make_skin(directory):
     path = os.path.join(directory, "remote-skin.png")
-    remote_window.GdkPixbuf.Pixbuf.new(
-        remote_window.GdkPixbuf.Colorspace.RGB, True, 8, SKIN_WIDTH, SKIN_HEIGHT
-    ).savev(path, "png", [], [])
+    pixbuf = remote_window.GdkPixbuf.Pixbuf.new(remote_window.GdkPixbuf.Colorspace.RGB, True, 8, SKIN_WIDTH, SKIN_HEIGHT)
+    pixbuf.fill(OPAQUE_GREY)
+    pixbuf.savev(path, "png", [], [])
     return path
+
+
+def alpha_at(pixbuf, x, y):
+    pixels = pixbuf.get_pixels()
+    return pixels[y * pixbuf.get_rowstride() + x * pixbuf.get_n_channels() + ALPHA_CHANNEL]
 
 
 def press_event(x, y, button=Gdk.BUTTON_PRIMARY, event_type=Gdk.EventType.BUTTON_PRESS):
@@ -397,6 +404,21 @@ class SkinWindowTests(unittest.TestCase):
         drain_events()
         self.tv.send_key.assert_not_called()
 
+    def test_taskbar_icon_is_the_remote_tilted_by_45_degrees(self):
+        icons = self.window.get_icon_list()
+        self.assertEqual([(icon.get_width(), icon.get_height()) for icon in icons], [
+            (size, size) for size in remote_window.ICON_SIZES
+        ])
+        for icon in icons:
+            size = icon.get_width()
+            with self.subTest(size=size):
+                self.assertTrue(icon.get_has_alpha())
+                self.assertGreater(alpha_at(icon, size // 2, size // 2), 0)
+                self.assertGreater(alpha_at(icon, size * 3 // 4, size // 4), 0)
+                self.assertGreater(alpha_at(icon, size // 4, size * 3 // 4), 0)
+                self.assertEqual(alpha_at(icon, size // 8, size // 8), 0)
+                self.assertEqual(alpha_at(icon, size * 7 // 8, size * 7 // 8), 0)
+
     def test_photo_window_has_no_title_bar(self):
         self.assertFalse(self.window.get_decorated())
 
@@ -504,6 +526,7 @@ class SkinWindowTests(unittest.TestCase):
         self.assertIsNone(window.skin)
         self.assertIn("KEY_UP", window.buttons)
         self.assertTrue(window.get_decorated())
+        self.assertEqual(len(window.get_icon_list()), 1)
 
 
 class TrayRemoteTests(unittest.TestCase):
