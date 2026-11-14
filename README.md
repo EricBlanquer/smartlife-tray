@@ -161,8 +161,8 @@ le guide des programmes (CH) ; la molette de la souris règle le volume ou chang
 les chiffres, sans changer la taille de la fenêtre.
 Ambient envoie `KEY_AMBIENT` et le micro `KEY_MIC`.
 Netflix, Prime Video et Rakuten TV lancent leur application par son identifiant (`*_APP_ID` dans
-`remote_layout.py`) sur la même connexion WebSocket, après avoir vérifié sur l'API de la TV qu'elle est
-installée ; sinon le bandeau d'état l'indique.
+`remote_layout.py`) sur la même connexion WebSocket ; si elle n'est pas installée, la TV ouvre sa page
+d'installation, comme avec la vraie télécommande.
 Ce pavé est dessiné en SVG transparent par `remote_keypad.py` d'après `KEYPAD_ROWS`, posé à `KEYPAD_ORIGIN` dans
 les coordonnées de la photo ; la page web le reçoit sur `/remote-keypad.svg` et l'ajoute en calque masqué.
 

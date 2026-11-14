@@ -17,7 +17,6 @@ TOKEN_FILENAME = "tv_token.txt"
 STATUS_PORT = 8001
 REMOTE_PORT = 8002
 STATUS_PATH = "/api/v2/"
-APPLICATIONS_PATH = "/api/v2/applications/"
 STATUS_TIMEOUT_SECONDS = 2
 REMOTE_TIMEOUT_SECONDS = 30
 REMOTE_KEY_PRESS_DELAY_SECONDS = 0
@@ -168,11 +167,7 @@ class Television:
     def send_key(self, key):
         self.use_remote(lambda remote: remote.send_key(key, key_press_delay=REMOTE_KEY_PRESS_DELAY_SECONDS))
 
-    def launch_app(self, app_id, name):
-        self.require_configuration()
-        status, _ = self.fetch_status(APPLICATIONS_PATH + app_id)
-        if status == HTTPStatus.NOT_FOUND:
-            raise LookupError(f"{name} is not installed on the TV")
+    def launch_app(self, app_id):
         self.use_remote(lambda remote: remote.run_app(app_id))
 
     def use_remote(self, command):

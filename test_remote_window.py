@@ -370,7 +370,7 @@ class SkinWindowTests(unittest.TestCase):
             self.click(x, 784)
         self.assertTrue(wait_until(lambda: self.tv.launch_app.call_count == 3))
         self.assertEqual([entry.args for entry in self.tv.launch_app.call_args_list], [
-            ("3201907018807", "Netflix"), ("3201512006785", "Prime Video"), ("3201511006428", "Rakuten TV"),
+            ("3201907018807",), ("3201512006785",), ("3201511006428",),
         ])
 
     def test_ambient_and_microphone_hotspots_send_their_keys(self):

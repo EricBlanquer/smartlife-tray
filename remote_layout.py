@@ -107,8 +107,8 @@ REMOTE_KEYS = frozenset(key for key in KEYS if key not in ACTIONS)
 
 
 def send(tv, key):
-    cell = KEYS[key]
-    if cell["app"]:
-        tv.launch_app(cell["app"], cell["title"])
+    app = KEYS[key]["app"]
+    if app:
+        tv.launch_app(app)
     else:
         tv.send_key(key)

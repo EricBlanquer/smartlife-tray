@@ -296,20 +296,16 @@ class RemoteKeyTests(unittest.TestCase):
         return connection
 
     def test_apps_launch_on_the_shared_connection(self):
-        connection = self.app_status(200)
         self.tv.send_key("KEY_UP")
-        self.tv.launch_app("3201907018807", "Netflix")
+        self.tv.launch_app("3201907018807")
         self.assertEqual(len(self.remotes), 1)
         self.remotes[0].run_app.assert_called_once_with("3201907018807")
-        connection.assert_called_once_with("192.0.2.10", 8001, timeout=2)
-        connection.return_value.request.assert_called_once_with("GET", "/api/v2/applications/3201907018807")
-        connection.return_value.close.assert_called_once_with()
 
-    def test_missing_app_is_reported_without_launching(self):
-        self.app_status(404)
-        with self.assertRaisesRegex(LookupError, "^Rakuten TV is not installed on the TV$"):
-            self.tv.launch_app("3201511006428", "Rakuten TV")
-        self.assertEqual(self.remotes, [])
+    def test_missing_app_is_still_launched_so_the_tv_offers_its_installation(self):
+        connection = self.app_status(404)
+        self.tv.launch_app("3201511006428")
+        self.remotes[0].run_app.assert_called_once_with("3201511006428")
+        connection.assert_not_called()
 
     def test_keys_reuse_one_paired_connection_without_press_delay(self):
         self.tv.send_key("KEY_UP")
