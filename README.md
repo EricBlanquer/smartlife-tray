@@ -151,7 +151,7 @@ Maintenir une flèche ou le volume répète la touche ; un échec s'affiche et v
 ### Photo de la télécommande
 
 La fenêtre et la page web affichent la photo entière d'une Samsung BN59-01311B, la télécommande de la série Q
-de 2019 : `images/remote-skin.png`, versionnée avec ses sources.
+de 2019 : `images/remote-skin.png`.
 Ses touches sont cliquables : marche/arrêt, anneau directionnel et OK, retour, accueil, lecture/pause,
 bascules VOL et CH.
 Comme sur la vraie télécommande, chaque bascule a trois zones : au-dessus de la barre pour monter,
@@ -172,24 +172,10 @@ Un clic maintenu hors des touches suivi d'un glisser la déplace ; le clic droit
 L'état (connexion, échec, commande marche/arrêt) apparaît dans un bandeau sur le bas de la photo, qui laisse
 passer les clics et disparaît 5 s après un message final ; la page web ajuste la photo à la hauteur de l'écran.
 
-`prepare_remote_skin.py` reconstruit cette image à partir des photos de `images/` (Pillow et NumPy requis,
-voir `requirements-dev.txt`) :
-
-- `remote-detail.jpg` (fiche idealo) donne les détails : redressée par sa perspective, elle fixe la géométrie
-  sur laquelle les zones de `remote_skin.py` sont calibrées ;
-- `remote-tones.png` (fiche matelecommandetv.com, AVIF décodé sans perte) donne les tons gris neutres : ses
-  variations lentes remplacent les reflets et la teinte bleue de la première ;
-- `remote-ring.png` et `remote-rocker.png` (photo produit Amazon de la One Remote) donnent l'anneau
-  directionnel et la bascule VOL/CH, incrustés à leur place ;
-- la tache de la fenêtre infrarouge est reconstruite d'après son voisinage, et la silhouette prend un bord
-  supérieur droit et des coins arrondis.
-
-```bash
-venv/bin/pip install -r requirements-dev.txt
-venv/bin/python prepare_remote_skin.py
-```
-
-Les dimensions de chaque photo sont vérifiées, puisque les positions sont calibrées sur elles.
+Cette image a été composée à partir de photos produit (détails, tons gris neutres, anneau et bascule d'une
+One Remote), redressée et nettoyée.
+Les zones cliquables de `remote_skin.py` sont calibrées sur ses 340 × 1496 pixels : une retouche doit garder
+ces dimensions et la position des touches.
 Si l'image manque ou n'a pas les dimensions attendues, la grille de boutons est affichée.
 
 ### Raccourcis clavier
@@ -388,5 +374,5 @@ venv/bin/python -m tinytuya scan
 ## Licence
 
 MIT pour le code.
-Les photos de `images/` sont des photos produit Samsung reprises de fiches commerciales : elles ne sont pas
-couvertes par cette licence.
+L'image de `images/` est composée de photos produit Samsung reprises de fiches commerciales : elle n'est pas
+couverte par cette licence.

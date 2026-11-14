@@ -7,13 +7,12 @@ import unittest
 import xml.etree.ElementTree as ElementTree
 from unittest.mock import Mock, patch
 
+import remote_skin
 import tv_remote_server as server_module
-from PIL import Image
-
 from remote_keypad import KEYPAD
 from remote_layout import PANEL_ACTION, POWER_ACTION, REMOTE_LAYOUT
-import remote_skin
 from remote_skin import REMOTE_SKIN, SKIN_HEIGHT, SKIN_WIDTH
+from test_remote_skin import png_header
 
 LOCALHOST = "127.0.0.1"
 JSON_HEADERS = {"Content-Type": "application/json"}
@@ -205,7 +204,8 @@ class RemoteServerTests(unittest.TestCase):
         skin_path = self.skin_path
         response, _ = self.request("GET", "/remote-skin.png")
         self.assertEqual(response.status, 404)
-        Image.new("RGBA", (SKIN_WIDTH, SKIN_HEIGHT)).save(skin_path, "PNG")
+        with open(skin_path, "wb") as handle:
+            handle.write(png_header(SKIN_WIDTH, SKIN_HEIGHT))
         response, body = self.request("GET", "/remote-skin.png")
         self.assertEqual((response.status, response.getheader("Content-Type")), (200, "image/png"))
         self.assertTrue(body.startswith(b"\x89PNG"))
@@ -213,7 +213,8 @@ class RemoteServerTests(unittest.TestCase):
         layout = json.loads(body)
         self.assertEqual(layout["skin"], json.loads(json.dumps(REMOTE_SKIN.web("/remote-skin.png"))))
         self.assertEqual(layout["keypad"], json.loads(json.dumps(KEYPAD.web("/remote-keypad.svg"))))
-        Image.new("RGBA", (SKIN_WIDTH, SKIN_HEIGHT + 1)).save(skin_path, "PNG")
+        with open(skin_path, "wb") as handle:
+            handle.write(png_header(SKIN_WIDTH, SKIN_HEIGHT + 1))
         response, body = self.request("GET", "/api/layout")
         self.assertIsNone(json.loads(body)["skin"])
         self.assertIsNone(json.loads(body)["keypad"])
