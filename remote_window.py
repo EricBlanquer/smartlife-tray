@@ -169,11 +169,13 @@ class SkinView(Gtk.DrawingArea):
             Gdk.EventMask.POINTER_MOTION_MASK
             | Gdk.EventMask.BUTTON_PRESS_MASK
             | Gdk.EventMask.BUTTON_RELEASE_MASK
+            | Gdk.EventMask.ENTER_NOTIFY_MASK
             | Gdk.EventMask.LEAVE_NOTIFY_MASK
             | Gdk.EventMask.SCROLL_MASK
         )
         self.connect("draw", self.on_draw)
         self.connect("motion-notify-event", self.on_motion)
+        self.connect("enter-notify-event", self.on_motion)
         self.connect("leave-notify-event", self.on_leave)
         self.connect("button-press-event", self.on_button_press)
         self.connect("button-release-event", self.on_button_release)
@@ -283,6 +285,7 @@ class RemoteWindow(Gtk.Window):
         self.toast_source_id = None
         self.dock_source_id = None
         self.docked = True
+        self.settled_gap = None
         self.context_menu = None
         self.skin, self.keypad = self.load_views(skin_path)
         self.set_window_icon(icon_file)
@@ -377,11 +380,22 @@ class RemoteWindow(Gtk.Window):
         area = self.work_area()
         return area.x + area.width - frame.x - frame.width, area.y + area.height - frame.y - frame.height
 
+    def dragging(self):
+        gdk_window = self.get_window()
+        if gdk_window is None:
+            return False
+        pointer = self.get_display().get_default_seat().get_pointer()
+        return bool(gdk_window.get_device_position(pointer).mask & Gdk.ModifierType.BUTTON1_MASK)
+
     def update_docking(self):
         self.dock_source_id = None
-        gap = self.corner_gap()
-        if gap is None:
+        if self.dragging():
+            self.dock_source_id = GLib.timeout_add(DOCK_CHECK_DELAY_MS, self.update_docking)
             return False
+        gap = self.corner_gap()
+        if gap is None or gap == self.settled_gap:
+            return False
+        self.settled_gap = gap
         docked = max(abs(gap[0]), abs(gap[1])) <= DOCK_TOLERANCE
         if docked and gap != (0, 0):
             self.place_in_bottom_right_corner()
@@ -563,7 +577,8 @@ class RemoteWindow(Gtk.Window):
         if skin_window is None:
             return None
         _, origin_x, origin_y = skin_window.get_origin()
-        x, y = root_x - origin_x, root_y - origin_y
+        scale = self.get_scale_factor()
+        x, y = root_x / scale - origin_x, root_y / scale - origin_y
         if not self.skin.contains_point(x, y):
             return None
         return rocker_key(self.skin.spot_at(x, y), index)

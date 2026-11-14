@@ -109,7 +109,7 @@ class RemoteServerTests(unittest.TestCase):
         self.tv.send_key.assert_not_called()
 
     def test_power_and_unknown_keys_are_refused(self):
-        for key in ("KEY_POWER", POWER_ACTION, "KEY_FACTORY", None, 12):
+        for key in ("KEY_POWER", POWER_ACTION, "KEY_FACTORY", None, 12, [], ["KEY_UP"], {"KEY_UP": 1}):
             with self.subTest(key=key):
                 response, body = self.post("/api/key", {"key": key})
                 self.assertEqual(response.status, 400)

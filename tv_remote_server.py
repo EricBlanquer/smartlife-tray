@@ -123,7 +123,7 @@ class RemoteRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def send_remote_key(self, key):
-        if key not in REMOTE_KEYS:
+        if not isinstance(key, str) or key not in REMOTE_KEYS:
             self.send_json_error(HTTPStatus.BAD_REQUEST, "Unknown key")
             return
         try:

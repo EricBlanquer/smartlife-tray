@@ -5,6 +5,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from Xlib import X, display
+from Xlib.ext import xtest
+
 import remote_window
 import smartlife_tray as tray
 from remote_keypad import KEYPAD, KEYPAD_HOTSPOTS, center
@@ -23,6 +26,9 @@ from remote_skin import HOTSPOTS, KEY_PANEL_BOTTOM, SKIN_HEIGHT, SKIN_WIDTH
 from remote_window import Gdk, GLib, RemoteWindow
 
 WAIT_SECONDS = 2
+SETTLE_SECONDS = 0.15
+WHEEL_UP_BUTTON = 4
+PRIMARY_BUTTON = 1
 OPAQUE_GREY = 0x808080FF
 ALPHA_CHANNEL = 3
 WAIT_STEP_SECONDS = 0.005
@@ -42,6 +48,13 @@ def wait_until(condition):
             return True
         time.sleep(WAIT_STEP_SECONDS)
     return False
+
+
+def settle():
+    deadline = time.monotonic() + SETTLE_SECONDS
+    while time.monotonic() < deadline:
+        drain_events()
+        time.sleep(WAIT_STEP_SECONDS)
 
 
 def key_event(name, state=0):
@@ -356,6 +369,45 @@ class SkinWindowTests(unittest.TestCase):
         place.assert_called_once_with()
         self.assertEqual(self.window.skin.get_size_request(), self.displayed(KEY_PANEL_BOTTOM))
 
+    def test_corner_refused_by_the_window_manager_is_not_requested_again(self):
+        with (
+            patch.object(self.window, "corner_gap", return_value=(3, 3)),
+            patch.object(self.window, "place_in_bottom_right_corner") as place,
+        ):
+            for _ in range(3):
+                self.window.update_docking()
+        place.assert_called_once_with()
+        self.assertTrue(self.window.docked)
+
+    def test_docking_waits_for_the_end_of_a_drag(self):
+        with (
+            patch.object(remote_window, "DOCK_CHECK_DELAY_MS", 20),
+            patch.object(self.window, "dragging", return_value=True),
+            patch.object(self.window, "corner_gap", return_value=(120, 80)) as gap,
+        ):
+            self.window.update_docking()
+            settle()
+            gap.assert_not_called()
+            self.assertTrue(self.window.docked)
+            self.assertIsNotNone(self.window.dock_source_id)
+            self.window.dragging.return_value = False
+            self.assertTrue(wait_until(lambda: not self.window.docked))
+
+    def test_held_primary_button_is_seen_as_a_drag(self):
+        self.assertTrue(wait_until(lambda: self.window.get_window() is not None))
+        client = display.Display()
+        self.addCleanup(client.close)
+        self.assertFalse(self.window.dragging())
+        xtest.fake_input(client, X.MotionNotify, x=5, y=5)
+        xtest.fake_input(client, X.ButtonPress, PRIMARY_BUTTON)
+        client.sync()
+        try:
+            self.assertTrue(self.window.dragging())
+        finally:
+            xtest.fake_input(client, X.ButtonRelease, PRIMARY_BUTTON)
+            client.sync()
+        self.assertFalse(self.window.dragging())
+
     def test_docking_is_checked_once_the_move_settles(self):
         with (
             patch.object(remote_window, "DOCK_CHECK_DELAY_MS", 30),
@@ -514,6 +566,7 @@ class SkinWindowTests(unittest.TestCase):
 
     def test_wheel_is_captured_on_the_whole_screen_while_focused(self):
         wheel = Mock()
+        self.window.global_wheel.release()
         self.window.global_wheel = wheel
         self.window.on_focus_in(self.window, None)
         wheel.grab.assert_called_once_with()
@@ -531,6 +584,48 @@ class SkinWindowTests(unittest.TestCase):
         self.window.on_global_wheel(0, origin_x + round(self.point(170, 372)["x"]), origin_y + round(self.point(170, 372)["y"]))
         self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 3))
         self.assertEqual(self.sent_keys(), ["KEY_CHUP", "KEY_VOLDOWN", "KEY_VOLUP"])
+
+    def test_captured_wheel_follows_the_rocker_on_a_scaled_display(self):
+        scale = 2
+        self.assertTrue(wait_until(lambda: self.window.skin.get_window() is not None))
+        _, origin_x, origin_y = self.window.skin.get_window().get_origin()
+        channel = self.point(240, 640)
+        with patch.object(self.window, "get_scale_factor", return_value=scale):
+            self.window.on_global_wheel(
+                0, scale * (origin_x + round(channel["x"])), scale * (origin_y + round(channel["y"]))
+            )
+        self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 1))
+        self.assertEqual(self.sent_keys(), ["KEY_CHUP"])
+
+    def test_hover_survives_a_captured_wheel_step(self):
+        self.assertTrue(wait_until(lambda: self.window.skin.get_window() is not None))
+        client = display.Display()
+        self.addCleanup(client.close)
+        self.addCleanup(self.leave_the_window, client)
+        client.set_input_focus(self.window.get_window().get_xid(), X.RevertToPointerRoot, X.CurrentTime)
+        client.sync()
+        self.assertTrue(wait_until(lambda: self.window.global_wheel.connection is not None))
+        _, origin_x, origin_y = self.window.skin.get_window().get_origin()
+        volume = self.point(100, 640)
+        x, y = origin_x + round(volume["x"]), origin_y + round(volume["y"])
+        for position in ((x - 3, y), (x, y)):
+            xtest.fake_input(client, X.MotionNotify, x=position[0], y=position[1])
+        client.sync()
+        self.assertTrue(wait_until(lambda: self.window.skin.hovered is not None))
+        xtest.fake_input(client, X.ButtonPress, WHEEL_UP_BUTTON)
+        xtest.fake_input(client, X.ButtonRelease, WHEEL_UP_BUTTON)
+        client.sync()
+        self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 1))
+        settle()
+        self.assertEqual(self.sent_keys(), ["KEY_VOLUP"])
+        self.assertIsNotNone(self.window.skin.hovered)
+        self.assertEqual(self.window.skin.hovered["key"], "KEY_VOLUP")
+
+    def leave_the_window(self, client):
+        xtest.fake_input(client, X.MotionNotify, x=0, y=0)
+        client.set_input_focus(X.PointerRoot, X.RevertToPointerRoot, X.CurrentTime)
+        client.sync()
+        settle()
 
     def test_held_volume_hotspot_repeats_until_release(self):
         with (

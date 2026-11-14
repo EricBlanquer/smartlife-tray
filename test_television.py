@@ -77,6 +77,19 @@ class TelevisionTests(unittest.TestCase):
                     connection.return_value.close.assert_called_once_with()
                 self.assertIs(self.tv.is_on, expected)
 
+    def test_refresh_keeps_the_last_state_until_the_new_one_is_read(self):
+        during_the_request = []
+
+        def fetch(path):
+            during_the_request.append(self.tv.is_on)
+            return 200, json.dumps({"device": {"PowerState": "standby"}}).encode()
+
+        self.tv.is_on = True
+        with patch.object(self.tv, "fetch_status", side_effect=fetch):
+            self.assertIs(self.tv.refresh(), False)
+        self.assertEqual(during_the_request, [True])
+        self.assertIs(self.tv.is_on, False)
+
     def test_unreachable_tv_is_unknown_rather_than_falsely_off(self):
         self.tv.is_on = True
         with patch.object(television.http.client, "HTTPConnection") as connection:
@@ -111,7 +124,7 @@ class TelevisionTests(unittest.TestCase):
         ports = tuple(receiver.getsockname()[1] for receiver in receivers)
         with (
             patch.object(self.tv, "lan_addresses", return_value=("127.0.0.1", "127.0.0.1")),
-            patch.object(self.tv, "refresh", side_effect=lambda: setattr(self.tv, "is_on", True)),
+            patch.object(self.tv, "read_power_state", return_value=True),
             patch.object(television, "WOL_PORTS", ports),
             patch.object(television, "WOL_BURST_COUNT", 3),
             patch.object(television, "WOL_BURST_INTERVAL_SECONDS", 0),
@@ -125,10 +138,9 @@ class TelevisionTests(unittest.TestCase):
                 self.assertEqual(source[0], "127.0.0.1")
 
     def test_wake_is_retried_until_the_tv_confirms_it_is_on(self):
-        states = iter((None, True))
         with (
             patch.object(self.tv, "wake") as wake,
-            patch.object(self.tv, "refresh", side_effect=lambda: setattr(self.tv, "is_on", next(states))),
+            patch.object(self.tv, "read_power_state", side_effect=(None, True)),
             patch.object(television.time, "sleep"),
         ):
             self.tv.set_power(True)
@@ -138,7 +150,7 @@ class TelevisionTests(unittest.TestCase):
     def test_unconfirmed_wake_stops_at_the_deadline(self):
         with (
             patch.object(self.tv, "wake") as wake,
-            patch.object(self.tv, "refresh"),
+            patch.object(self.tv, "read_power_state", return_value=None),
             patch.object(television.time, "monotonic", side_effect=(0, 0, 46, 46)),
             patch.object(television.time, "sleep"),
         ):
@@ -176,10 +188,9 @@ class TelevisionTests(unittest.TestCase):
         token_path = Path(self.tv.token_file)
         token_path.write_text("12345678")
         token_path.chmod(0o644)
-        self.tv.is_on = True
         _, instance = self.patch_remote()
         instance.token = "12345678"
-        with patch.object(self.tv, "refresh"):
+        with patch.object(self.tv, "read_power_state", return_value=True):
             self.tv.set_power(False)
         instance.send_key.assert_called_once_with("KEY_POWER")
         instance.__exit__.assert_called_once()
@@ -187,20 +198,18 @@ class TelevisionTests(unittest.TestCase):
         self.assertEqual(token_path.stat().st_mode & 0o777, 0o600)
 
     def test_first_pairing_creates_private_token_file(self):
-        self.tv.is_on = True
         remote_class, instance = self.patch_remote()
         instance.token = "12345678"
-        with patch.object(self.tv, "refresh"):
+        with patch.object(self.tv, "read_power_state", return_value=True):
             self.tv.set_power(False)
         self.assertIsNone(remote_class.call_args.kwargs["token"])
         self.assertEqual(os.stat(self.tv.token_file).st_mode & 0o777, 0o600)
 
     def test_failed_pairing_preserves_the_existing_token(self):
         Path(self.tv.token_file).write_text("existing-token")
-        self.tv.is_on = True
         _, instance = self.patch_remote()
         instance.open.side_effect = TimeoutError()
-        with patch.object(self.tv, "refresh"):
+        with patch.object(self.tv, "read_power_state", return_value=True):
             with self.assertRaises(TimeoutError):
                 self.tv.set_power(False)
         instance.send_key.assert_not_called()
@@ -210,8 +219,10 @@ class TelevisionTests(unittest.TestCase):
     def test_off_and_unknown_state_never_send_a_power_toggle(self):
         for state in (False, None):
             with self.subTest(state=state):
-                self.tv.is_on = state
-                with patch.object(self.tv, "refresh"), patch.object(television, "SamsungTVWS") as remote:
+                with (
+                    patch.object(self.tv, "read_power_state", return_value=state),
+                    patch.object(television, "SamsungTVWS") as remote,
+                ):
                     if state is None:
                         with self.assertRaisesRegex(OSError, "power state unavailable"):
                             self.tv.set_power(False)
@@ -222,10 +233,9 @@ class TelevisionTests(unittest.TestCase):
     def test_state_is_checked_again_after_pairing_before_any_toggle(self):
         for final_state in (False, None):
             with self.subTest(state=final_state):
-                states = iter((True, final_state))
                 _, instance = self.patch_remote()
                 instance.token = "12345678"
-                with patch.object(self.tv, "refresh", side_effect=lambda: setattr(self.tv, "is_on", next(states))):
+                with patch.object(self.tv, "read_power_state", side_effect=(True, final_state)):
                     if final_state is None:
                         with self.assertRaisesRegex(OSError, "power state unavailable"):
                             self.tv.set_power(False)
@@ -233,6 +243,34 @@ class TelevisionTests(unittest.TestCase):
                         self.tv.set_power(False)
                 instance.send_key.assert_not_called()
                 instance.__exit__.assert_called_once()
+
+    def overwritten_by_another_thread(self, reading, shared):
+        def refresh():
+            self.tv.is_on = shared
+            return reading
+
+        return patch.object(self.tv, "refresh", side_effect=refresh)
+
+    def test_toggle_ignores_a_state_overwritten_by_another_thread(self):
+        with self.overwritten_by_another_thread(True, None), patch.object(self.tv, "set_power") as set_power:
+            self.tv.toggle_power()
+        set_power.assert_called_once_with(False)
+
+    def test_power_off_ignores_a_state_overwritten_by_another_thread(self):
+        _, instance = self.patch_remote()
+        with self.overwritten_by_another_thread(True, False):
+            self.tv.set_power(False)
+        instance.send_key.assert_called_once_with("KEY_POWER")
+
+    def test_power_on_ignores_a_state_overwritten_by_another_thread(self):
+        with (
+            self.overwritten_by_another_thread(True, None),
+            patch.object(self.tv, "wake") as wake,
+            patch.object(television.time, "sleep") as sleep,
+        ):
+            self.tv.set_power(True)
+        wake.assert_called_once_with()
+        sleep.assert_not_called()
 
     def test_failed_token_write_removes_temporary_file(self):
         with patch.object(television.os, "replace", side_effect=OSError("disk error")):
@@ -434,7 +472,7 @@ class RemoteKeyTests(unittest.TestCase):
         for state, expected in ((True, False), (False, True), (None, True)):
             with self.subTest(state=state):
                 with (
-                    patch.object(self.tv, "refresh", side_effect=lambda: setattr(self.tv, "is_on", state)),
+                    patch.object(self.tv, "read_power_state", return_value=state),
                     patch.object(self.tv, "set_power") as set_power,
                 ):
                     self.tv.toggle_power()

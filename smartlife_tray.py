@@ -592,35 +592,35 @@ class TrayApplication:
         broadcasts = discover_devices()
         for device in self.devices:
             info = broadcasts.get(device.id)
-            if info:
-                device.ip = info["ip"]
-                device.version = float(info["version"])
+            if not info:
+                continue
+            try:
+                ip, version = info["ip"], float(info["version"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            device.ip = ip
+            device.version = version
 
     def locate_and_refresh_all(self):
-        self.set_busy(True)
-        self.refresh_tv()
-        self.locate_devices()
-        for device in self.devices:
-            try:
-                device.refresh()
-            except Exception:
-                device.online = False
-        self.set_busy(False)
-        GLib.idle_add(self.sync_widgets)
+        self.refresh_devices(locate=True)
 
     def refresh_all(self):
+        self.refresh_devices(locate=any(not device.ip for device in self.devices))
+
+    def refresh_devices(self, locate):
         self.set_busy(True)
-        self.refresh_tv()
-        missing = [d for d in self.devices if not d.ip]
-        if missing:
-            self.locate_devices()
-        for device in self.devices:
-            try:
-                device.refresh()
-            except Exception:
-                device.online = False
-        self.set_busy(False)
-        GLib.idle_add(self.sync_widgets)
+        try:
+            self.refresh_tv()
+            if locate:
+                self.locate_devices()
+            for device in self.devices:
+                try:
+                    device.refresh()
+                except Exception:
+                    device.online = False
+        finally:
+            self.set_busy(False)
+            GLib.idle_add(self.sync_widgets)
 
     def set_busy(self, busy):
         self.busy = busy

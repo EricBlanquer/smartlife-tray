@@ -114,5 +114,61 @@ class TelevisionMenuTests(unittest.TestCase):
         self.assertEqual(self.app.tv_status_item.get_label(), "Commande envoyée")
 
 
+class RefreshTests(unittest.TestCase):
+    DEVICE_ID = "bf0123456789"
+
+    def setUp(self):
+        self.app = tray.TrayApplication.__new__(tray.TrayApplication)
+        self.device = tray.Device({"id": self.DEVICE_ID, "name": "Lamp", "key": "0123456789abcdef"})
+        self.device.refresh = Mock()
+        self.app.devices = [self.device]
+        self.app.busy = False
+        self.app.tv = Mock(spec=tray.Television)
+        for name in ("sync_widgets", "sync_status_label", "sync_tv_widgets"):
+            setattr(self.app, name, Mock(return_value=False))
+
+    def discovered(self, info):
+        return patch.object(tray, "discover_devices", return_value={self.DEVICE_ID: info})
+
+    def test_discovery_broadcast_locates_the_device(self):
+        with self.discovered({"gwId": self.DEVICE_ID, "ip": "192.0.2.5", "version": "3.3"}):
+            self.app.locate_and_refresh_all()
+        self.assertEqual((self.device.ip, self.device.version), ("192.0.2.5", 3.3))
+        self.device.refresh.assert_called_once_with()
+        self.assertFalse(self.app.busy)
+
+    def test_malformed_discovery_broadcast_is_ignored(self):
+        for info in ({"gwId": self.DEVICE_ID}, {"ip": "192.0.2.5"}, {"ip": "192.0.2.5", "version": "new"},
+                     {"ip": "192.0.2.5", "version": None}):
+            with self.subTest(info=info), self.discovered(info):
+                self.app.locate_and_refresh_all()
+                self.assertIsNone(self.device.ip)
+                self.assertIsNone(self.device.version)
+                self.assertFalse(self.app.busy)
+
+    def test_busy_state_is_released_when_a_refresh_fails(self):
+        self.app.tv.refresh.side_effect = RuntimeError("unexpected")
+        for refresh in (self.app.refresh_all, self.app.locate_and_refresh_all):
+            with self.subTest(refresh=refresh.__name__), self.discovered({}):
+                with self.assertRaisesRegex(RuntimeError, "unexpected"):
+                    refresh()
+                self.assertFalse(self.app.busy)
+
+    def test_periodic_refresh_rediscovers_only_missing_devices(self):
+        with self.discovered({"ip": "192.0.2.5", "version": "3.3"}) as discover:
+            self.app.refresh_all()
+            self.app.refresh_all()
+        discover.assert_called_once_with()
+        self.assertEqual(self.device.refresh.call_count, 2)
+
+    def test_failing_device_is_reported_offline(self):
+        self.device.online = True
+        self.device.refresh.side_effect = OSError("unreachable")
+        with self.discovered({}):
+            self.app.refresh_all()
+        self.assertFalse(self.device.online)
+        self.assertFalse(self.app.busy)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -73,24 +73,23 @@ class Television:
         if not self.configured:
             raise ValueError("Configure the TV host and MAC address in tv.json first")
 
-    def require_known_power_state(self):
-        if self.is_on is None:
-            raise OSError("TV power state unavailable; cannot safely send the power key")
-
     def refresh(self):
-        self.is_on = None
+        self.is_on = self.read_power_state()
+        return self.is_on
+
+    def read_power_state(self):
         if not self.configured:
-            return
+            return None
         try:
             status, body = self.fetch_status(STATUS_PATH)
-            if status == HTTPStatus.OK:
-                data = json.loads(body)
-                device = data.get("device", {}) if isinstance(data, dict) else {}
-                state = device.get("PowerState") if isinstance(device, dict) else None
-                if isinstance(state, str):
-                    self.is_on = POWER_STATES.get(state.lower())
+            if status != HTTPStatus.OK:
+                return None
+            data = json.loads(body)
         except (OSError, ValueError, http.client.HTTPException):
-            pass
+            return None
+        device = data.get("device") if isinstance(data, dict) else None
+        state = device.get("PowerState") if isinstance(device, dict) else None
+        return POWER_STATES.get(state.lower()) if isinstance(state, str) else None
 
     def fetch_status(self, path):
         connection = http.client.HTTPConnection(self.host, STATUS_PORT, timeout=STATUS_TIMEOUT_SECONDS)
@@ -127,15 +126,13 @@ class Television:
 
     def toggle_power(self):
         self.require_configuration()
-        self.refresh()
-        self.set_power(self.is_on is not True)
+        self.set_power(self.refresh() is not True)
 
     def turn_on(self):
         deadline = time.monotonic() + POWER_ON_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             self.wake()
-            self.refresh()
-            if self.is_on is True:
+            if self.refresh() is True:
                 return
             remaining = max(0, deadline - time.monotonic())
             time.sleep(min(POWER_ON_RETRY_INTERVAL_SECONDS, remaining))
@@ -154,15 +151,17 @@ class Television:
                     time.sleep(WOL_BURST_INTERVAL_SECONDS)
 
     def turn_off(self):
-        self.refresh()
-        if self.is_on is False:
+        if self.confirmed_power_state() is False:
             return
-        self.require_known_power_state()
         with self.connect_remote() as remote:
-            self.refresh()
-            self.require_known_power_state()
-            if self.is_on:
+            if self.confirmed_power_state():
                 remote.send_key(POWER_KEY)
+
+    def confirmed_power_state(self):
+        is_on = self.refresh()
+        if is_on is None:
+            raise OSError("TV power state unavailable; cannot safely send the power key")
+        return is_on
 
     def send_key(self, key):
         self.use_remote(lambda remote: remote.send_key(key, key_press_delay=REMOTE_KEY_PRESS_DELAY_SECONDS))

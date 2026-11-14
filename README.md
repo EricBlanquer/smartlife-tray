@@ -52,8 +52,10 @@ Le `--system-site-packages` est nécessaire : PyGObject (GTK) vient des paquets 
 Dépendances système (Debian / Ubuntu / Mint) :
 
 ```bash
-sudo apt install gir1.2-ayatanaappindicator3-0.1 python3-gi iproute2
+sudo apt install gir1.2-ayatanaappindicator3-0.1 python3-gi python3-gi-cairo librsvg2-common iproute2
 ```
+
+`python3-gi-cairo` sert au dessin de la télécommande et `librsvg2-common` au chargement des images SVG.
 
 ## Récupérer ses local keys
 
@@ -253,6 +255,8 @@ Le premier envoi de touche déclenche la demande d'autorisation **SmartLife** su
 ```bash
 xvfb-run -a venv/bin/python -m unittest -v
 ```
+
+`xvfb-run` vient du paquet `xvfb` : les tests ouvrent leurs fenêtres et simulent le pointeur sur cet écran virtuel.
 
 Les tests vérifient les menus GTK, les erreurs réseau, les états inconnus, les permissions
 du jeton, les paquets WoL reçus par des sockets UDP locales, la fenêtre de télécommande,
