@@ -1296,13 +1296,13 @@ class TrayApplication:
             return
         self.tv_busy = True
         self.sync_tv_widgets()
-        self.show_tv_status(progress)
+        self.show_tv_status(progress, in_progress=True)
         self.run_background(lambda: self.send_tv_power(command))
 
-    def show_tv_status(self, text):
+    def show_tv_status(self, text, in_progress=False):
         self.tv_status_item.set_label(text)
         if self.remote_window is not None:
-            self.remote_window.show_status(text)
+            self.remote_window.show_status(text, in_progress)
 
     def send_tv_power(self, command):
         error = None

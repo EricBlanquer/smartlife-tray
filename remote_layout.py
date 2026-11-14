@@ -38,7 +38,7 @@ KEYS = {
         button("KEY_RIGHT", "▶", "Droite", ("Right", "KP_Right"), ("ArrowRight",), repeat=True),
         button("KEY_DOWN", "▼", "Bas", ("Down", "KP_Down"), ("ArrowDown",), repeat=True),
         button("KEY_RETURN", "Retour", "Retour", ("BackSpace",), ("Backspace",)),
-        button("KEY_MUTE", "Muet", "Couper le son", ("m",), ("m",)),
+        button("KEY_MUTE", "Muet", "Couper ou rétablir le son", ("m",), ("m",)),
         button("KEY_EXIT", "Quitter", "Quitter", ("Escape",), ("Escape",)),
         button("KEY_VOLUP", "Vol +", "Volume plus", ("plus", "KP_Add"), ("+",), repeat=True),
         button("KEY_VOLDOWN", "Vol −", "Volume moins", ("minus", "KP_Subtract"), ("-",), repeat=True),

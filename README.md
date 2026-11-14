@@ -143,18 +143,25 @@ reçoivent leur pong, sans attendre de message de données.
 La connexion est rouverte si la TV l'a fermée ou après 60 s d'inactivité, et la touche est renvoyée une fois
 sur une nouvelle connexion si l'envoi échoue.
 Le bouton marche/arrêt relit l'état de la TV puis allume par Wake-on-LAN ou éteint, comme le menu.
-Maintenir une flèche ou le volume répète la touche ; un échec s'affiche sous les boutons et vide les touches en attente.
+Maintenir une flèche ou le volume répète la touche ; un échec s'affiche et vide les touches en attente.
 
 ### Photo de la télécommande
 
 Avec `~/.config/smartlife-tray/remote-skin.png`, la fenêtre et la page web affichent la photo d'une
 Samsung One Remote, avec ses touches cliquables : marche/arrêt, anneau directionnel et OK, retour,
-accueil, lecture/pause, bascules VOL et CH (haut ou bas, molette de la souris acceptée).
+accueil, lecture/pause, bascules VOL et CH.
+Comme sur la vraie télécommande, chaque bascule a trois zones : au-dessus de la barre pour monter,
+au-dessous pour descendre, et la barre elle-même pour l'appui, qui coupe ou rétablit le son (VOL) ou ouvre
+le guide des programmes (CH) ; la molette de la souris règle le volume ou change de chaîne.
 **123** ouvre le panneau des autres touches et des chiffres ; le micro et les pastilles de couleur restent inertes.
 
+La fenêtre affiche la photo réduite (`SKIN_DISPLAY_SCALE`), sans marge.
+L'état (connexion, échec, commande marche/arrêt) apparaît dans un bandeau sur le bas de la photo, qui laisse
+passer les clics et disparaît 5 s après un message final ; la page web ajuste la photo à la hauteur de l'écran.
+
 La photo n'est pas versionnée : les zones (`remote_skin.py`) sont calibrées sur une photo produit précise,
-vérifiée par sa somme SHA-256. La télécharger depuis la fiche produit, puis la redresser, la recadrer et
-détourer son fond (Pillow requis) :
+vérifiée par sa somme SHA-256. La télécharger depuis la fiche produit, puis la redresser, la recadrer au ras
+de la télécommande, arrondir ses coins inférieurs et détourer son fond (Pillow requis) :
 
 ```bash
 venv/bin/python prepare_remote_skin.py one-remote.jpg

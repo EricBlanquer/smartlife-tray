@@ -6,7 +6,7 @@ import io
 import os
 import tempfile
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from app_paths import CONFIG_DIR
 from remote_skin import SKIN_CROP_BOX, SKIN_FILENAME, SKIN_ROTATION_DEGREES, SKIN_SOURCE_SHA256
@@ -20,6 +20,8 @@ TRANSPARENT = 0
 OPAQUE = 255
 EDGE_SOFTNESS = 0.7
 SPECK_SIZE = 5
+BOTTOM_CORNER_RADIUS = 18
+SUPERSAMPLING = 4
 
 
 def straighten(photo):
@@ -40,6 +42,22 @@ def remove_background(image):
     result = image.convert("RGBA")
     result.putalpha(alpha)
     return result
+
+
+def round_bottom_corners(image):
+    width, height = image.size
+    radius = BOTTOM_CORNER_RADIUS * SUPERSAMPLING
+    shape = Image.new("L", (width * SUPERSAMPLING, height * SUPERSAMPLING), TRANSPARENT)
+    ImageDraw.Draw(shape).rounded_rectangle(
+        (0, -radius, shape.width - 1, shape.height - 1), radius=radius, fill=OPAQUE
+    )
+    result = image.copy()
+    result.putalpha(ImageChops.multiply(image.getchannel("A"), shape.resize(image.size, Image.LANCZOS)))
+    return result
+
+
+def cut_out(photo):
+    return round_bottom_corners(remove_background(straighten(photo)))
 
 
 def fill_rows(mask):
@@ -80,7 +98,7 @@ def main():
         data = handle.read()
     if hashlib.sha256(data).hexdigest() != SKIN_SOURCE_SHA256:
         parser.error("this is not the photo the key positions are calibrated for")
-    save(remove_background(straighten(Image.open(io.BytesIO(data)))), arguments.output)
+    save(cut_out(Image.open(io.BytesIO(data))), arguments.output)
     print(arguments.output)
 
 

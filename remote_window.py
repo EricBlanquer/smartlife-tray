@@ -28,6 +28,19 @@ BORDER_WIDTH = 12
 GRID_SPACING = 6
 BUTTON_WIDTH = 76
 BUTTON_HEIGHT = 44
+SKIN_DISPLAY_SCALE = 0.65
+TOAST_MARGIN = 8
+TOAST_MAX_WIDTH_CHARS = 20
+TOAST_HIDE_DELAY_MS = 5000
+TOAST_STYLE_CLASS = "remote-toast"
+TOAST_CSS = b"""
+.remote-toast {
+  background-color: rgba(22, 24, 29, 0.85);
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 4px 10px;
+}
+"""
 REPEAT_DELAY_MS = 400
 REPEAT_INTERVAL_MS = 150
 QUEUE_LIMIT = 8
@@ -53,16 +66,28 @@ def is_primary_press(event):
     return event.type == Gdk.EventType.BUTTON_PRESS and event.button == Gdk.BUTTON_PRIMARY
 
 
+def remove_source(source_id):
+    if source_id is not None:
+        GLib.source_remove(source_id)
+    return None
+
+
 class SkinView(Gtk.DrawingArea):
     def __init__(self, path, on_press, on_release, on_wheel):
         super().__init__()
-        self.pixbuf = GdkPixbuf.Pixbuf.new_from_file(path)
+        width = round(SKIN_WIDTH * SKIN_DISPLAY_SCALE)
+        height = round(SKIN_HEIGHT * SKIN_DISPLAY_SCALE)
+        self.pixbuf = GdkPixbuf.Pixbuf.new_from_file(path).scale_simple(
+            width, height, GdkPixbuf.InterpType.HYPER
+        )
+        self.scale_x = width / SKIN_WIDTH
+        self.scale_y = height / SKIN_HEIGHT
         self.on_press = on_press
         self.on_release = on_release
         self.on_wheel = on_wheel
         self.hovered = None
         self.pressed = None
-        self.set_size_request(SKIN_WIDTH, SKIN_HEIGHT)
+        self.set_size_request(width, height)
         self.set_has_tooltip(True)
         self.add_events(
             Gdk.EventMask.POINTER_MOTION_MASK
@@ -84,10 +109,14 @@ class SkinView(Gtk.DrawingArea):
         context.paint()
         spot = self.pressed or self.hovered
         if spot is not None:
+            context.scale(self.scale_x, self.scale_y)
             trace(context, spot)
             context.set_source_rgba(*(PRESSED_RGBA if self.pressed else HOVER_RGBA))
             context.fill()
         return False
+
+    def spot_at(self, x, y):
+        return hotspot_at(x / self.scale_x, y / self.scale_y)
 
     def set_hovered(self, spot):
         if spot is self.hovered:
@@ -100,7 +129,7 @@ class SkinView(Gtk.DrawingArea):
         self.queue_draw()
 
     def on_motion(self, widget, event):
-        self.set_hovered(hotspot_at(event.x, event.y))
+        self.set_hovered(self.spot_at(event.x, event.y))
         return False
 
     def on_leave(self, widget, event):
@@ -109,7 +138,7 @@ class SkinView(Gtk.DrawingArea):
         return False
 
     def on_button_press(self, widget, event):
-        spot = hotspot_at(event.x, event.y)
+        spot = self.spot_at(event.x, event.y)
         if spot is None or not is_primary_press(event):
             return False
         self.pressed = spot
@@ -121,13 +150,13 @@ class SkinView(Gtk.DrawingArea):
         if self.pressed is None:
             return False
         self.pressed = None
-        self.set_hovered(hotspot_at(event.x, event.y))
+        self.set_hovered(self.spot_at(event.x, event.y))
         self.queue_draw()
         self.on_release()
         return True
 
     def on_scroll(self, widget, event):
-        spot = hotspot_at(event.x, event.y)
+        spot = self.spot_at(event.x, event.y)
         index = WHEEL_INDEXES.get(event.direction)
         if spot is None or spot["wheel"] is None or index is None:
             return False
@@ -135,7 +164,7 @@ class SkinView(Gtk.DrawingArea):
         return True
 
     def on_query_tooltip(self, widget, x, y, keyboard_mode, tooltip):
-        spot = hotspot_at(x, y)
+        spot = self.spot_at(x, y)
         if spot is None:
             return False
         tooltip.set_text(spot["title"])
@@ -158,25 +187,13 @@ class RemoteWindow(Gtk.Window):
             for name in cell["gtk_keys"]
         }
         self.set_resizable(False)
-        self.set_border_width(BORDER_WIDTH)
         self.set_icon_from_file(icon_file)
-        self.skin = self.load_skin(skin_path)
-        self.panel = None
-        if self.skin is None:
-            remote = self.create_grid(REMOTE_LAYOUT)
-        else:
-            self.panel = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_RIGHT)
-            self.panel.add(self.create_grid(EXTRA_LAYOUT))
-            remote = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=BORDER_WIDTH)
-            remote.pack_start(self.skin, False, False, 0)
-            remote.pack_start(self.panel, False, False, 0)
-        self.status_label = Gtk.Label(label=READY_TEXT, xalign=0)
+        self.status_label = Gtk.Label(label=READY_TEXT)
         self.status_label.set_line_wrap(True)
-        self.status_label.set_max_width_chars(1)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=BORDER_WIDTH)
-        box.pack_start(remote, False, False, 0)
-        box.pack_start(self.status_label, False, False, 0)
-        self.add(box)
+        self.toast_source_id = None
+        self.panel = None
+        self.skin = self.load_skin(skin_path)
+        self.add(self.create_grid_view() if self.skin is None else self.create_skin_view())
         self.connect("key-press-event", self.on_key_press)
         self.connect("key-release-event", self.on_key_release)
         self.connect("focus-out-event", self.on_focus_out)
@@ -192,6 +209,44 @@ class RemoteWindow(Gtk.Window):
             return SkinView(skin_path, self.on_hotspot_pressed, self.stop_repeat, self.queue_key)
         except GLib.Error:
             return None
+
+    def create_grid_view(self):
+        self.set_border_width(BORDER_WIDTH)
+        self.status_label.set_xalign(0)
+        self.status_label.set_max_width_chars(1)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=BORDER_WIDTH)
+        box.pack_start(self.create_grid(REMOTE_LAYOUT), False, False, 0)
+        box.pack_start(self.status_label, False, False, 0)
+        return box
+
+    def create_skin_view(self):
+        self.style_toast()
+        overlay = Gtk.Overlay()
+        overlay.add(self.skin)
+        overlay.add_overlay(self.status_label)
+        overlay.set_overlay_pass_through(self.status_label, True)
+        grid = self.create_grid(EXTRA_LAYOUT)
+        grid.set_border_width(BORDER_WIDTH)
+        self.panel = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_RIGHT)
+        self.panel.add(grid)
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        box.pack_start(overlay, False, False, 0)
+        box.pack_start(self.panel, False, False, 0)
+        return box
+
+    def style_toast(self):
+        label = self.status_label
+        label.set_justify(Gtk.Justification.CENTER)
+        label.set_max_width_chars(TOAST_MAX_WIDTH_CHARS)
+        label.set_halign(Gtk.Align.CENTER)
+        label.set_valign(Gtk.Align.END)
+        label.set_property("margin", TOAST_MARGIN)
+        label.set_no_show_all(True)
+        provider = Gtk.CssProvider()
+        provider.load_from_data(TOAST_CSS)
+        style = label.get_style_context()
+        style.add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        style.add_class(TOAST_STYLE_CLASS)
 
     def create_grid(self, layout):
         grid = Gtk.Grid(
@@ -270,9 +325,7 @@ class RemoteWindow(Gtk.Window):
         return True
 
     def stop_repeat(self):
-        if self.repeat_source_id is not None:
-            GLib.source_remove(self.repeat_source_id)
-            self.repeat_source_id = None
+        self.repeat_source_id = remove_source(self.repeat_source_id)
 
     def on_key_press(self, window, event):
         if event.state & MODIFIER_MASK:
@@ -315,7 +368,7 @@ class RemoteWindow(Gtk.Window):
             if key is STOP_SIGNAL:
                 break
             if not self.tv.remote_open:
-                GLib.idle_add(self.show_status, CONNECTING_TEXT)
+                GLib.idle_add(self.show_status, CONNECTING_TEXT, True)
             try:
                 self.tv.send_key(key)
             except Exception as ex:
@@ -325,13 +378,29 @@ class RemoteWindow(Gtk.Window):
             GLib.idle_add(self.show_status, READY_TEXT)
         self.tv.close_remote()
 
-    def show_status(self, text):
-        if not self.closed and self.status_label.get_label() != text:
+    def show_status(self, text, in_progress=False):
+        if self.closed:
+            return False
+        if self.status_label.get_label() != text:
             self.status_label.set_label(text)
+        if self.skin is not None:
+            self.update_toast(text != READY_TEXT, in_progress)
+        return False
+
+    def update_toast(self, visible, in_progress):
+        self.toast_source_id = remove_source(self.toast_source_id)
+        self.status_label.set_visible(visible)
+        if visible and not in_progress:
+            self.toast_source_id = GLib.timeout_add(TOAST_HIDE_DELAY_MS, self.hide_toast)
+
+    def hide_toast(self):
+        self.toast_source_id = None
+        self.status_label.hide()
         return False
 
     def on_destroy(self, window):
         self.closed = True
         self.stop_repeat()
+        self.toast_source_id = remove_source(self.toast_source_id)
         self.drop_pending_keys()
         self.keys.put(STOP_SIGNAL)

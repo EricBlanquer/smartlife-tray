@@ -280,6 +280,7 @@
       registerShortcuts(layout.layout);
       if (layout.skin) {
         remote.classList.add('has-skin');
+        remote.style.setProperty('--skin-aspect', `${layout.skin.width} / ${layout.skin.height}`);
         remote.appendChild(createSkin(layout.skin));
         fillGrid(panel, layout.extra);
       } else {

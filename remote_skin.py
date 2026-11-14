@@ -7,7 +7,7 @@ from remote_layout import KEYS, PANEL_ACTION, PLAY_PAUSE_KEY, POWER_ACTION
 SKIN_FILENAME = "remote-skin.png"
 SKIN_SOURCE_SHA256 = "e0528b51be097441ab213106f49e2a87fcd6c3b71a7c4fae506cfb2f45cf55c1"
 SKIN_ROTATION_DEGREES = -0.64
-SKIN_CROP_BOX = (4, 0, 322, 735)
+SKIN_CROP_BOX = (10, 3, 309, 727)
 SKIN_WIDTH = SKIN_CROP_BOX[2] - SKIN_CROP_BOX[0]
 SKIN_HEIGHT = SKIN_CROP_BOX[3] - SKIN_CROP_BOX[1]
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -16,13 +16,16 @@ PNG_HEADER_CHUNK = b"IHDR"
 SHAPE_RECT = "rect"
 SHAPE_CIRCLE = "circle"
 SHAPE_SECTOR = "sector"
-DPAD_CENTER_X = 156
-DPAD_CENTER_Y = 369
+DPAD_CENTER_X = 150
+DPAD_CENTER_Y = 366
 DPAD_OUTER_RADIUS = 122
 DPAD_INNER_RADIUS = 63
 FULL_TURN_DEGREES = 360
-VOLUME_WHEEL = ("KEY_VOLUP", "KEY_VOLDOWN")
-CHANNEL_WHEEL = ("KEY_CHUP", "KEY_CHDOWN")
+ROCKER_TOP = 597
+ROCKER_BAR_TOP = 622
+ROCKER_BAR_BOTTOM = 642
+ROCKER_BOTTOM = 681
+ROCKER_RADIUS = 6
 PATH_PRECISION = 2
 
 
@@ -46,6 +49,15 @@ def circle(key, center_x, center_y, radius):
     return hotspot(key, SHAPE_CIRCLE, None, cx=center_x, cy=center_y, radius=radius)
 
 
+def rocker(left, right, up, press, down):
+    wheel = (up, down)
+    return [
+        rect(up, left, ROCKER_TOP, right, ROCKER_BAR_TOP, ROCKER_RADIUS, wheel),
+        rect(press, left, ROCKER_BAR_TOP, right, ROCKER_BAR_BOTTOM, ROCKER_RADIUS, wheel),
+        rect(down, left, ROCKER_BAR_BOTTOM, right, ROCKER_BOTTOM, ROCKER_RADIUS, wheel),
+    ]
+
+
 def sector(key, start, end):
     return hotspot(
         key, SHAPE_SECTOR, None, cx=DPAD_CENTER_X, cy=DPAD_CENTER_Y,
@@ -54,20 +66,18 @@ def sector(key, start, end):
 
 
 HOTSPOTS = [
-    rect(POWER_ACTION, 42, 30, 118, 81, 25),
-    rect(PANEL_ACTION, 34, 196, 100, 250, 8),
+    rect(POWER_ACTION, 36, 27, 112, 78, 25),
+    rect(PANEL_ACTION, 28, 193, 94, 247, 8),
     circle("KEY_ENTER", DPAD_CENTER_X, DPAD_CENTER_Y, DPAD_INNER_RADIUS),
     sector("KEY_UP", 225, 315),
     sector("KEY_RIGHT", 315, 405),
     sector("KEY_DOWN", 45, 135),
     sector("KEY_LEFT", 135, 225),
-    rect("KEY_RETURN", 34, 495, 108, 552, 8),
-    circle("KEY_HOME", 156, 547, 40),
-    rect(PLAY_PAUSE_KEY, 206, 495, 284, 552, 8),
-    rect("KEY_VOLUP", 37, 600, 157, 636, 6, VOLUME_WHEEL),
-    rect("KEY_VOLDOWN", 37, 636, 157, 684, 6, VOLUME_WHEEL),
-    rect("KEY_CHUP", 158, 600, 277, 636, 6, CHANNEL_WHEEL),
-    rect("KEY_CHDOWN", 158, 636, 277, 684, 6, CHANNEL_WHEEL),
+    rect("KEY_RETURN", 28, 492, 102, 549, 8),
+    circle("KEY_HOME", 150, 544, 40),
+    rect(PLAY_PAUSE_KEY, 200, 492, 278, 549, 8),
+    *rocker(31, 151, "KEY_VOLUP", "KEY_MUTE", "KEY_VOLDOWN"),
+    *rocker(152, 271, "KEY_CHUP", "KEY_GUIDE", "KEY_CHDOWN"),
 ]
 
 

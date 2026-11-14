@@ -209,9 +209,9 @@ class RemoteWindowTests(unittest.TestCase):
         statuses = []
         original = self.window.show_status
 
-        def record(text):
+        def record(text, in_progress=False):
             statuses.append(text)
-            return original(text)
+            return original(text, in_progress)
 
         self.window.show_status = record
         self.window.queue_key("KEY_UP")
@@ -251,78 +251,136 @@ class SkinWindowTests(unittest.TestCase):
     def sent_keys(self):
         return [entry.args[0] for entry in self.tv.send_key.call_args_list]
 
+    def point(self, x, y):
+        return {"x": x * self.window.skin.scale_x, "y": y * self.window.skin.scale_y}
+
+    def press(self, x, y, **kwargs):
+        position = self.point(x, y)
+        return self.window.skin.on_button_press(self.window.skin, press_event(position["x"], position["y"], **kwargs))
+
+    def release(self, x, y):
+        position = self.point(x, y)
+        return self.window.skin.on_button_release(self.window.skin, press_event(position["x"], position["y"]))
+
+    def scroll(self, x, y, direction):
+        return self.window.skin.on_scroll(self.window.skin, SimpleNamespace(**self.point(x, y), direction=direction))
+
     def click(self, x, y):
-        self.window.skin.on_button_press(self.window.skin, press_event(x, y))
-        self.window.skin.on_button_release(self.window.skin, press_event(x, y))
+        self.press(x, y)
+        self.release(x, y)
+
+    def test_photo_is_shown_reduced_without_margins(self):
+        size = (round(SKIN_WIDTH * remote_window.SKIN_DISPLAY_SCALE), round(SKIN_HEIGHT * remote_window.SKIN_DISPLAY_SCALE))
+        self.assertEqual(self.window.skin.get_size_request(), size)
+        self.assertEqual((self.window.skin.pixbuf.get_width(), self.window.skin.pixbuf.get_height()), size)
+        self.assertEqual(self.window.get_border_width(), 0)
+        drain_events()
+        self.assertEqual(self.window.get_size(), size)
 
     def test_photo_replaces_the_grid_and_hides_the_extra_keys(self):
         self.assertIsNotNone(self.window.skin)
-        self.assertEqual(self.window.skin.get_size_request(), (SKIN_WIDTH, SKIN_HEIGHT))
         self.assertFalse(self.window.panel.get_reveal_child())
         self.assertNotIn("KEY_UP", self.window.buttons)
         self.assertIn("KEY_7", self.window.buttons)
 
     def test_hotspots_send_their_keys(self):
-        for x, y in ((156, 276), (250, 369), (156, 462), (62, 369), (156, 369), (70, 523), (156, 547), (245, 523)):
+        for x, y in ((150, 273), (244, 366), (150, 459), (56, 366), (150, 366), (64, 520), (150, 544), (239, 520)):
             self.click(x, y)
         self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 8))
         self.assertEqual(self.sent_keys(), [
             "KEY_UP", "KEY_RIGHT", "KEY_DOWN", "KEY_LEFT", "KEY_ENTER", "KEY_RETURN", "KEY_HOME", PLAY_PAUSE_KEY,
         ])
 
+    def test_rocker_presses_mute_and_open_the_guide_without_repeating(self):
+        with (
+            patch.object(remote_window, "REPEAT_DELAY_MS", 20),
+            patch.object(remote_window, "REPEAT_INTERVAL_MS", 10),
+        ):
+            self.press(91, 632)
+            time.sleep(0.08)
+            drain_events()
+            self.release(91, 632)
+            self.click(212, 632)
+        self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 2))
+        self.assertEqual(self.sent_keys(), ["KEY_MUTE", "KEY_GUIDE"])
+
     def test_power_and_123_hotspots_trigger_their_actions(self):
-        self.click(80, 55)
+        self.click(74, 52)
         self.on_power.assert_called_once_with()
-        self.click(66, 222)
+        self.click(60, 219)
         self.assertTrue(self.window.panel.get_reveal_child())
-        self.click(66, 222)
+        self.click(60, 219)
         self.assertFalse(self.window.panel.get_reveal_child())
         drain_events()
         self.tv.send_key.assert_not_called()
 
     def test_inert_areas_and_other_buttons_do_nothing(self):
-        for x, y in ((156, 178), (250, 215), (5, 5)):
-            self.assertFalse(self.window.skin.on_button_press(self.window.skin, press_event(x, y)))
-        self.assertFalse(self.window.skin.on_button_press(
-            self.window.skin, press_event(156, 369, button=Gdk.BUTTON_SECONDARY)
-        ))
+        for x, y in ((150, 175), (244, 212), (5, 5)):
+            self.assertFalse(self.press(x, y))
+        self.assertFalse(self.press(150, 366, button=Gdk.BUTTON_SECONDARY))
         drain_events()
         self.tv.send_key.assert_not_called()
 
     def test_wheel_over_volume_and_channels(self):
         for x, y, direction in (
-            (97, 615, Gdk.ScrollDirection.UP), (97, 665, Gdk.ScrollDirection.DOWN),
-            (218, 665, Gdk.ScrollDirection.UP), (218, 615, Gdk.ScrollDirection.DOWN),
+            (91, 612, Gdk.ScrollDirection.UP), (91, 662, Gdk.ScrollDirection.DOWN), (91, 632, Gdk.ScrollDirection.UP),
+            (212, 662, Gdk.ScrollDirection.UP), (212, 612, Gdk.ScrollDirection.DOWN), (212, 632, Gdk.ScrollDirection.DOWN),
         ):
-            self.assertTrue(self.window.skin.on_scroll(self.window.skin, SimpleNamespace(x=x, y=y, direction=direction)))
-        self.assertFalse(self.window.skin.on_scroll(
-            self.window.skin, SimpleNamespace(x=156, y=369, direction=Gdk.ScrollDirection.UP)
-        ))
-        self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 4))
-        self.assertEqual(self.sent_keys(), ["KEY_VOLUP", "KEY_VOLDOWN", "KEY_CHUP", "KEY_CHDOWN"])
+            self.assertTrue(self.scroll(x, y, direction))
+        self.assertFalse(self.scroll(150, 366, Gdk.ScrollDirection.UP))
+        self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 6))
+        self.assertEqual(self.sent_keys(), [
+            "KEY_VOLUP", "KEY_VOLDOWN", "KEY_VOLUP", "KEY_CHUP", "KEY_CHDOWN", "KEY_CHDOWN",
+        ])
 
     def test_held_volume_hotspot_repeats_until_release(self):
         with (
             patch.object(remote_window, "REPEAT_DELAY_MS", 20),
             patch.object(remote_window, "REPEAT_INTERVAL_MS", 10),
         ):
-            self.window.skin.on_button_press(self.window.skin, press_event(97, 615))
+            self.press(91, 612)
             self.assertIsNotNone(self.window.skin.pressed)
             self.assertTrue(wait_until(lambda: self.tv.send_key.call_count >= 4))
-            self.window.skin.on_button_release(self.window.skin, press_event(97, 615))
+            self.release(91, 612)
         self.assertIsNone(self.window.repeat_source_id)
         self.assertIsNone(self.window.skin.pressed)
         self.assertEqual(set(self.sent_keys()), {"KEY_VOLUP"})
 
     def test_hover_and_tooltip_follow_the_hotspots(self):
         tooltip = Mock()
-        self.window.skin.on_motion(self.window.skin, SimpleNamespace(x=156, y=547))
+        self.window.skin.on_motion(self.window.skin, SimpleNamespace(**self.point(150, 544)))
         self.assertEqual(self.window.skin.hovered["key"], "KEY_HOME")
-        self.assertTrue(self.window.skin.on_query_tooltip(self.window.skin, 156, 547, False, tooltip))
+        home = self.point(150, 544)
+        self.assertTrue(self.window.skin.on_query_tooltip(self.window.skin, home["x"], home["y"], False, tooltip))
         tooltip.set_text.assert_called_once_with("Accueil")
         self.window.skin.on_leave(self.window.skin, None)
         self.assertIsNone(self.window.skin.hovered)
-        self.assertFalse(self.window.skin.on_query_tooltip(self.window.skin, 156, 178, False, tooltip))
+        inert = self.point(150, 175)
+        self.assertFalse(self.window.skin.on_query_tooltip(self.window.skin, inert["x"], inert["y"], False, tooltip))
+
+    def test_status_appears_over_the_photo_only_when_useful(self):
+        toast = self.window.status_label
+        self.assertFalse(toast.get_visible())
+        self.assertTrue(toast.get_parent().get_overlay_pass_through(toast))
+        with patch.object(remote_window, "TOAST_HIDE_DELAY_MS", 20):
+            self.window.show_status("Connexion à la TV…", True)
+            self.assertTrue(toast.get_visible())
+            time.sleep(0.05)
+            drain_events()
+            self.assertTrue(toast.get_visible())
+            self.window.show_status("Prêt")
+            self.assertFalse(toast.get_visible())
+            self.window.show_status("Échec : network unavailable")
+            self.assertTrue(toast.get_visible())
+            self.assertEqual(toast.get_label(), "Échec : network unavailable")
+            self.assertTrue(wait_until(lambda: not toast.get_visible()))
+        self.assertIsNone(self.window.toast_source_id)
+
+    def test_closing_cancels_the_pending_status_timeout(self):
+        self.window.show_status("Commande envoyée")
+        self.assertIsNotNone(self.window.toast_source_id)
+        self.window.destroy()
+        self.assertIsNone(self.window.toast_source_id)
 
     def test_keyboard_actions_work_with_the_photo(self):
         self.assertTrue(self.window.on_key_press(self.window, key_event("XF86Sleep")))

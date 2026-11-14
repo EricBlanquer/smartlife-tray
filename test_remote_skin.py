@@ -12,22 +12,26 @@ import remote_skin
 from remote_layout import PANEL_ACTION, PLAY_PAUSE_KEY, POWER_ACTION
 
 PROBES = {
-    (80, 55): POWER_ACTION,
-    (66, 222): PANEL_ACTION,
-    (156, 276): "KEY_UP",
-    (250, 369): "KEY_RIGHT",
-    (156, 462): "KEY_DOWN",
-    (62, 369): "KEY_LEFT",
-    (156, 369): "KEY_ENTER",
-    (70, 523): "KEY_RETURN",
-    (156, 547): "KEY_HOME",
-    (245, 523): PLAY_PAUSE_KEY,
-    (97, 615): "KEY_VOLUP",
-    (97, 665): "KEY_VOLDOWN",
-    (218, 615): "KEY_CHUP",
-    (218, 665): "KEY_CHDOWN",
-    (156, 178): None,
-    (250, 215): None,
+    (74, 52): POWER_ACTION,
+    (60, 219): PANEL_ACTION,
+    (150, 273): "KEY_UP",
+    (244, 366): "KEY_RIGHT",
+    (150, 459): "KEY_DOWN",
+    (56, 366): "KEY_LEFT",
+    (150, 366): "KEY_ENTER",
+    (64, 520): "KEY_RETURN",
+    (150, 544): "KEY_HOME",
+    (239, 520): PLAY_PAUSE_KEY,
+    (91, 605): "KEY_VOLUP",
+    (91, 632): "KEY_MUTE",
+    (91, 662): "KEY_VOLDOWN",
+    (212, 605): "KEY_CHUP",
+    (212, 632): "KEY_GUIDE",
+    (212, 662): "KEY_CHDOWN",
+    (150, 175): None,
+    (244, 212): None,
+    (91, 590): None,
+    (91, 690): None,
     (5, 5): None,
 }
 
@@ -71,8 +75,12 @@ class SkinGeometryTests(unittest.TestCase):
                 self.assertTrue(spot["path"].endswith("Z"))
                 self.assertTrue(spot["title"])
         up = next(spot for spot in skin["hotspots"] if spot["key"] == "KEY_UP")
-        self.assertEqual(up["path"], "M69.73,282.73A122,122 0 0 1 242.27,282.73L200.55,324.45A63,63 0 0 0 111.45,324.45Z")
-        self.assertEqual(next(spot for spot in skin["hotspots"] if spot["key"] == "KEY_VOLUP")["wheel"], ["KEY_VOLUP", "KEY_VOLDOWN"])
+        self.assertEqual(up["path"], "M63.73,279.73A122,122 0 0 1 236.27,279.73L194.55,321.45A63,63 0 0 0 105.45,321.45Z")
+        wheels = {spot["key"]: spot["wheel"] for spot in skin["hotspots"]}
+        for key in ("KEY_VOLUP", "KEY_MUTE", "KEY_VOLDOWN"):
+            self.assertEqual(wheels[key], ["KEY_VOLUP", "KEY_VOLDOWN"])
+        for key in ("KEY_CHUP", "KEY_GUIDE", "KEY_CHDOWN"):
+            self.assertEqual(wheels[key], ["KEY_CHUP", "KEY_CHDOWN"])
 
     def test_only_a_png_of_the_calibrated_size_is_used(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -106,6 +114,15 @@ class PrepareSkinTests(unittest.TestCase):
         self.assertEqual(alpha.getpixel((60, 100)), 255)
         self.assertGreater(alpha.getpixel((65, 12)), 240)
         self.assertEqual(alpha.getpixel((110, 100)), 0)
+
+    def test_only_the_bottom_corners_are_rounded(self):
+        image = Image.new("RGBA", (120, 200), (200, 200, 205, 255))
+        alpha = prepare_remote_skin.round_bottom_corners(image).getchannel("A")
+        for point in ((0, 199), (119, 199)):
+            self.assertEqual(alpha.getpixel(point), 0)
+        for point in ((0, 0), (119, 0), (0, 150), (60, 199)):
+            self.assertEqual(alpha.getpixel(point), 255)
+        self.assertTrue(0 < alpha.getpixel((3, 192)) < 255)
 
     def test_straightened_photo_has_the_calibrated_size(self):
         photo = Image.new("RGB", (329, 1358), (255, 255, 255))
