@@ -92,14 +92,16 @@ REMOTE_LAYOUT = [
     *DIGIT_ROWS,
 ]
 
-KEYPAD_FUNCTION_ROWS = [
-    row("KEY_SOURCE", "KEY_MENU", "KEY_GUIDE"),
-    row("KEY_INFO", "KEY_CH_LIST", "KEY_EXIT"),
+KEYPAD_ROWS = [
+    row("KEY_SOURCE", "KEY_MENU", "KEY_INFO"),
     row("KEY_REWIND", "KEY_PLAY", "KEY_FF"),
     row("KEY_STOP", "KEY_PAUSE", "KEY_MUTE"),
+    *DIGIT_ROWS[:-1],
+    row("KEY_CH_LIST", "KEY_0", "KEY_EXIT"),
 ]
 
 LAYOUT_COLUMNS = 3
+DIGIT_KEYS = frozenset(f"KEY_{value}" for value in range(10))
 ACTIONS = frozenset((POWER_ACTION, PANEL_ACTION))
 REMOTE_KEYS = frozenset(key for key in KEYS if key not in ACTIONS)
 

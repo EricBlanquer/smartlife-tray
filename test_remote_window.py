@@ -10,8 +10,7 @@ import smartlife_tray as tray
 from remote_keypad import KEYPAD, KEYPAD_HOTSPOTS, center
 from remote_layout import (
     ACTIONS,
-    DIGIT_ROWS,
-    KEYPAD_FUNCTION_ROWS,
+    KEYPAD_ROWS,
     KEYS,
     LAYOUT_COLUMNS,
     PANEL_ACTION,
@@ -96,7 +95,7 @@ class RemoteLayoutTests(unittest.TestCase):
         return [cell for row in layout for cell in row if cell is not None]
 
     def test_grids_are_complete_and_keys_are_unique(self):
-        for layout in (REMOTE_LAYOUT, KEYPAD_FUNCTION_ROWS + DIGIT_ROWS):
+        for layout in (REMOTE_LAYOUT, KEYPAD_ROWS):
             with self.subTest(layout=len(layout)):
                 self.assertTrue(all(len(row) == LAYOUT_COLUMNS for row in layout))
                 keys = [cell["key"] for cell in self.cells(layout)]
@@ -317,14 +316,28 @@ class SkinWindowTests(unittest.TestCase):
 
     def test_photo_replaces_the_grid_and_hides_the_extra_keys(self):
         self.assertIsNotNone(self.window.skin)
-        self.assertFalse(self.window.panel.get_reveal_child())
+        self.assertFalse(self.window.keypad.get_visible())
         self.assertEqual(self.window.buttons, {})
-        self.assertIs(self.window.panel.get_child(), self.window.keypad)
+        self.assertIs(self.window.keypad.get_parent(), self.window.skin.get_parent())
+
+    def test_keypad_covers_the_handle_without_resizing_the_window(self):
+        keypad = self.window.keypad
+        scale = remote_window.SKIN_DISPLAY_SCALE
+        size = (round(KEYPAD.width * scale), round(KEYPAD.height * scale))
+        self.assertEqual((keypad.pixbuf.get_width(), keypad.pixbuf.get_height()), size)
+        drain_events()
+        window_size = self.window.get_size()
+        self.window.toggle_panel()
+        drain_events()
+        self.assertTrue(keypad.get_visible())
+        self.assertEqual(self.window.get_size(), window_size)
+        expected = (round(KEYPAD.origin[0] * scale), round(KEYPAD.origin[1] * scale))
+        self.assertTrue(wait_until(lambda: keypad.translate_coordinates(self.window.skin, 0, 0) == expected))
+        self.assertLessEqual(expected[1] + size[1], window_size[1])
 
     def test_drawn_keypad_sends_its_keys(self):
         keypad = self.window.keypad
-        size = (round(KEYPAD.width * remote_window.KEYPAD_DISPLAY_SCALE), round(KEYPAD.height * remote_window.KEYPAD_DISPLAY_SCALE))
-        self.assertEqual((keypad.pixbuf.get_width(), keypad.pixbuf.get_height()), size)
+        self.window.toggle_panel()
         for count, spot in enumerate(KEYPAD_HOTSPOTS, start=1):
             self.click(*center(spot), view=keypad)
             self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == count))
@@ -370,9 +383,9 @@ class SkinWindowTests(unittest.TestCase):
         self.click(77, 60)
         self.on_power.assert_called_once_with()
         self.click(70, 196)
-        self.assertTrue(self.window.panel.get_reveal_child())
+        self.assertTrue(self.window.keypad.get_visible())
         self.click(70, 196)
-        self.assertFalse(self.window.panel.get_reveal_child())
+        self.assertFalse(self.window.keypad.get_visible())
         drain_events()
         self.tv.send_key.assert_not_called()
 

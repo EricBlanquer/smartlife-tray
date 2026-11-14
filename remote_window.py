@@ -31,7 +31,6 @@ GRID_SPACING = 6
 BUTTON_WIDTH = 76
 BUTTON_HEIGHT = 44
 SKIN_DISPLAY_SCALE = 0.5
-KEYPAD_DISPLAY_SCALE = 0.6
 SVG_LOADER = "svg"
 TOAST_MARGIN = 8
 TOAST_MAX_WIDTH_CHARS = 20
@@ -103,19 +102,19 @@ def remove_source(source_id):
     return None
 
 
-def display_size(geometry, scale):
-    return round(geometry.width * scale), round(geometry.height * scale)
+def display_size(geometry):
+    return round(geometry.width * SKIN_DISPLAY_SCALE), round(geometry.height * SKIN_DISPLAY_SCALE)
 
 
 def load_photo(path, geometry):
     return GdkPixbuf.Pixbuf.new_from_file(path).scale_simple(
-        *display_size(geometry, SKIN_DISPLAY_SCALE), GdkPixbuf.InterpType.HYPER
+        *display_size(geometry), GdkPixbuf.InterpType.HYPER
     )
 
 
 def load_svg(data, geometry):
     loader = GdkPixbuf.PixbufLoader.new_with_type(SVG_LOADER)
-    loader.set_size(*display_size(geometry, KEYPAD_DISPLAY_SCALE))
+    loader.set_size(*display_size(geometry))
     try:
         loader.write(data)
     finally:
@@ -249,7 +248,6 @@ class RemoteWindow(Gtk.Window):
         self.status_label = Gtk.Label(label=READY_TEXT)
         self.status_label.set_line_wrap(True)
         self.toast_source_id = None
-        self.panel = None
         self.context_menu = None
         self.skin, self.keypad = self.load_views(skin_path)
         content = self.create_grid_view() if self.skin is None else self.create_photo_view()
@@ -302,15 +300,19 @@ class RemoteWindow(Gtk.Window):
         self.style_toast()
         overlay = Gtk.Overlay()
         overlay.add(self.skin)
+        overlay.add_overlay(self.place_keypad())
         overlay.add_overlay(self.status_label)
         overlay.set_overlay_pass_through(self.status_label, True)
+        return overlay
+
+    def place_keypad(self):
+        origin_x, origin_y = KEYPAD.origin
+        self.keypad.set_halign(Gtk.Align.START)
         self.keypad.set_valign(Gtk.Align.START)
-        self.panel = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_RIGHT, valign=Gtk.Align.START)
-        self.panel.add(self.keypad)
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        box.pack_start(overlay, False, False, 0)
-        box.pack_start(self.panel, False, False, 0)
-        return box
+        self.keypad.set_margin_start(round(origin_x * self.skin.scale_x))
+        self.keypad.set_margin_top(round(origin_y * self.skin.scale_y))
+        self.keypad.set_no_show_all(True)
+        return self.keypad
 
     def use_transparent_background(self):
         screen = self.get_screen()
@@ -395,8 +397,8 @@ class RemoteWindow(Gtk.Window):
             self.queue_key(key)
 
     def toggle_panel(self):
-        if self.panel is not None:
-            self.panel.set_reveal_child(not self.panel.get_reveal_child())
+        if self.keypad is not None:
+            self.keypad.set_visible(not self.keypad.get_visible())
 
     def on_button_clicked(self, button, key):
         self.activate(key)

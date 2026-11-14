@@ -1,41 +1,30 @@
 from xml.sax.saxutils import escape, quoteattr
 
-from remote_layout import DIGIT_ROWS, KEYPAD_FUNCTION_ROWS, KEYS
-from remote_skin import SkinGeometry, circle, rect, svg_path
+from remote_layout import DIGIT_KEYS, KEYPAD_ROWS, KEYS
+from remote_skin import SKIN_WIDTH, SkinGeometry, circle, rect, svg_path
 
-KEYPAD_WIDTH = 299
-KEYPAD_HEIGHT = 724
-COLUMN_CENTERS = (64, 150, 236)
-FUNCTION_ROW_TOP = 56
-FUNCTION_ROW_PITCH = 70
-PILL_WIDTH = 78
+KEYPAD_ORIGIN = (0, 884)
+KEYPAD_WIDTH = SKIN_WIDTH
+KEYPAD_HEIGHT = 500
+COLUMN_CENTERS = (70, 170, 270)
+FIRST_ROW_CENTER = 44
+ROW_PITCH = 70
+PILL_WIDTH = 80
 PILL_HEIGHT = 46
-DIGIT_ROW_TOP = 380
-DIGIT_ROW_PITCH = 86
-DIGIT_RADIUS = 33
-BODY_RADIUS = 16
-FACE_INSET = 15
-FACE_RADIUS = 12
+DIGIT_RADIUS = 31
 LABEL_FONT = "Noto Sans, DejaVu Sans, Helvetica, Arial, sans-serif"
 LABEL_COLOR = "#3a3638"
-LABEL_SIZE = 16
-DIGIT_SIZE = 26
+LABEL_SIZE = 17
+DIGIT_SIZE = 32
+ICON_SCALE = 1.3
 ICON_STROKE = 1.8
-KEY_OUTLINE = "#4b4647"
-KEY_OUTLINE_WIDTH = 1.6
+KEY_OUTLINE = "#3f3b3c"
+KEY_OUTLINE_WIDTH = 1.8
 KEY_HIGHLIGHT = "#ffffff"
 KEY_HIGHLIGHT_OPACITY = 0.65
 KEY_HIGHLIGHT_INSET = 2
 LABEL_BASELINE_SHIFT = 0.36
-BODY_STOPS = (
-    (0, "#8f8b88"), (0.015, "#d2d0ce"), (0.035, "#a6a29f"), (0.048, "#6d6869"),
-    (0.06, "#bdbdbf"), (0.5, "#cdcdd0"), (0.94, "#dadadd"),
-    (0.952, "#6d6869"), (0.965, "#a6a29f"), (0.985, "#d2d0ce"), (1, "#8f8b88"),
-)
-FACE_STOPS = ((0, "#d6d6d8"), (0.45, "#c4c4c7"), (1, "#d3d3d6"))
 KEY_STOPS = ((0, "#ececed"), (0.55, "#d3d3d5"), (1, "#b9b9bc"))
-BRUSHED_FREQUENCY = "0.9 0.012"
-BRUSHED_OPACITY = 0.07
 ICONS = {
     "KEY_REWIND": "M-1,-7L-11,0L-1,7ZM10,-7L0,0L10,7Z",
     "KEY_PLAY": "M-5,-8L8,0L-5,8Z",
@@ -45,38 +34,33 @@ ICONS = {
 }
 
 
-def function_hotspot(key, column, row_index):
+def keypad_hotspot(key, column, row_index):
     center_x = COLUMN_CENTERS[column]
-    top = FUNCTION_ROW_TOP + row_index * FUNCTION_ROW_PITCH
+    center_y = FIRST_ROW_CENTER + row_index * ROW_PITCH
+    if key in DIGIT_KEYS:
+        return circle(key, center_x, center_y, DIGIT_RADIUS)
     return rect(
-        key, center_x - PILL_WIDTH // 2, top, center_x + PILL_WIDTH // 2, top + PILL_HEIGHT, PILL_HEIGHT // 2
+        key,
+        center_x - PILL_WIDTH / 2,
+        center_y - PILL_HEIGHT / 2,
+        center_x + PILL_WIDTH / 2,
+        center_y + PILL_HEIGHT / 2,
+        PILL_HEIGHT / 2,
     )
 
 
-def digit_hotspot(key, column, row_index):
-    return circle(key, COLUMN_CENTERS[column], DIGIT_ROW_TOP + row_index * DIGIT_ROW_PITCH, DIGIT_RADIUS)
-
-
-def hotspots(rows, factory):
-    return [
-        factory(cell["key"], column, row_index)
-        for row_index, row in enumerate(rows)
-        for column, cell in enumerate(row)
-        if cell is not None
-    ]
-
-
 KEYPAD_HOTSPOTS = [
-    *hotspots(KEYPAD_FUNCTION_ROWS, function_hotspot),
-    *hotspots(DIGIT_ROWS, digit_hotspot),
+    keypad_hotspot(cell["key"], column, row_index)
+    for row_index, row in enumerate(KEYPAD_ROWS)
+    for column, cell in enumerate(row)
+    if cell is not None
 ]
-KEYPAD = SkinGeometry(KEYPAD_WIDTH, KEYPAD_HEIGHT, KEYPAD_HOTSPOTS)
+KEYPAD = SkinGeometry(KEYPAD_WIDTH, KEYPAD_HEIGHT, KEYPAD_HOTSPOTS, KEYPAD_ORIGIN)
 
 
-def gradient(identifier, stops, horizontal):
-    end = 'x2="1" y2="0"' if horizontal else 'x2="0" y2="1"'
+def gradient(identifier, stops):
     offsets = "".join(f'<stop offset="{offset}" stop-color="{color}"/>' for offset, color in stops)
-    return f'<linearGradient id="{identifier}" x1="0" y1="0" {end}>{offsets}</linearGradient>'
+    return f'<linearGradient id="{identifier}" x1="0" y1="0" x2="0" y2="1">{offsets}</linearGradient>'
 
 
 def center(spot):
@@ -103,10 +87,10 @@ def label(spot):
     icon = ICONS.get(spot["key"])
     if icon:
         return (
-            f'<path d="{icon}" transform="translate({x},{y})" fill="none" stroke="{LABEL_COLOR}" '
-            f'stroke-width="{ICON_STROKE}" stroke-linejoin="round"/>'
+            f'<path d="{icon}" transform="translate({x},{y}) scale({ICON_SCALE})" fill="none" '
+            f'stroke="{LABEL_COLOR}" stroke-width="{ICON_STROKE / ICON_SCALE}" stroke-linejoin="round"/>'
         )
-    size = DIGIT_SIZE if "cx" in spot else LABEL_SIZE
+    size = DIGIT_SIZE if spot["key"] in DIGIT_KEYS else LABEL_SIZE
     return (
         f'<text x="{x}" y="{y + size * LABEL_BASELINE_SHIFT}" text-anchor="middle" font-family={quoteattr(LABEL_FONT)} '
         f'font-size="{size}" fill="{LABEL_COLOR}">{escape(KEYS[spot["key"]]["label"])}</text>'
@@ -123,22 +107,10 @@ def key_shape(spot):
 
 
 def keypad_svg():
-    face = FACE_INSET
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{KEYPAD_WIDTH}" height="{KEYPAD_HEIGHT}" '
         f'viewBox="0 0 {KEYPAD_WIDTH} {KEYPAD_HEIGHT}">'
-        "<defs>"
-        f"{gradient('body', BODY_STOPS, True)}{gradient('face', FACE_STOPS, False)}{gradient('key', KEY_STOPS, False)}"
-        '<filter id="brushed" x="0" y="0" width="1" height="1">'
-        f'<feTurbulence type="fractalNoise" baseFrequency="{BRUSHED_FREQUENCY}" numOctaves="2" seed="7"/>'
-        f'<feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 {BRUSHED_OPACITY * 4} 0"/>'
-        '<feComposite in2="SourceGraphic" operator="in"/>'
-        "</filter>"
-        "</defs>"
-        f'<rect width="{KEYPAD_WIDTH}" height="{KEYPAD_HEIGHT}" rx="{BODY_RADIUS}" fill="url(#body)"/>'
-        f'<rect x="{face}" y="{face}" width="{KEYPAD_WIDTH - 2 * face}" height="{KEYPAD_HEIGHT - 2 * face}" '
-        f'rx="{FACE_RADIUS}" fill="url(#face)" stroke="{KEY_OUTLINE}" stroke-width="1"/>'
-        f'<rect width="{KEYPAD_WIDTH}" height="{KEYPAD_HEIGHT}" rx="{BODY_RADIUS}" fill="#000000" filter="url(#brushed)"/>'
+        f"<defs>{gradient('key', KEY_STOPS)}</defs>"
         f"{''.join(key_shape(spot) for spot in KEYPAD_HOTSPOTS)}"
         "</svg>"
     )

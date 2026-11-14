@@ -19,7 +19,6 @@
   ]);
 
   const remote = document.getElementById('remote');
-  const panel = document.getElementById('panel');
   const stateLine = document.getElementById('state');
   const message = document.getElementById('message');
   const shortcuts = new Map();
@@ -29,6 +28,7 @@
   let powerBusy = false;
   let tvOn = null;
   let pollTimer = null;
+  let keypadLayer = null;
 
   async function readError(response) {
     try {
@@ -134,7 +134,9 @@
   }
 
   function togglePanel() {
-    panel.hidden = !panel.hidden;
+    if (keypadLayer) {
+      keypadLayer.toggleAttribute('hidden');
+    }
   }
 
   function activate(key) {
@@ -232,25 +234,31 @@
     return path;
   }
 
-  function createSkin(skin, label) {
-    const svg = document.createElementNS(SVG_NS, 'svg');
+  function createLayer(skin, label) {
+    const layer = document.createElementNS(SVG_NS, 'g');
     const image = document.createElementNS(SVG_NS, 'image');
-    svg.setAttribute('viewBox', `0 0 ${skin.width} ${skin.height}`);
-    svg.setAttribute('class', 'skin');
-    svg.setAttribute('role', 'group');
-    svg.setAttribute('aria-label', label);
+    layer.setAttribute('transform', `translate(${skin.x} ${skin.y})`);
+    layer.setAttribute('role', 'group');
+    layer.setAttribute('aria-label', label);
     image.setAttribute('href', skin.image);
     image.setAttribute('width', skin.width);
     image.setAttribute('height', skin.height);
-    svg.appendChild(image);
-    skin.hotspots.forEach((spot) => svg.appendChild(createHotspot(spot)));
-    return svg;
+    layer.appendChild(image);
+    skin.hotspots.forEach((spot) => layer.appendChild(createHotspot(spot)));
+    return layer;
   }
 
-  function mountSkin(container, skin, label) {
-    container.classList.add('has-skin');
-    container.style.setProperty('--skin-aspect', `${skin.width} / ${skin.height}`);
-    container.appendChild(createSkin(skin, label));
+  function mountSkin(skin, keypad) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${skin.width} ${skin.height}`);
+    svg.setAttribute('class', 'skin');
+    svg.appendChild(createLayer(skin, 'Télécommande'));
+    keypadLayer = createLayer(keypad, 'Autres touches et chiffres');
+    keypadLayer.setAttribute('hidden', '');
+    svg.appendChild(keypadLayer);
+    remote.classList.add('has-skin');
+    remote.style.setProperty('--skin-aspect', `${skin.width} / ${skin.height}`);
+    remote.appendChild(svg);
   }
 
   function registerShortcuts(layout) {
@@ -285,8 +293,7 @@
       actions.panel = layout.panel;
       registerShortcuts(layout.layout);
       if (layout.skin) {
-        mountSkin(remote, layout.skin, 'Télécommande');
-        mountSkin(panel, layout.keypad, 'Autres touches et chiffres');
+        mountSkin(layout.skin, layout.keypad);
       } else {
         remote.classList.add('pad');
         fillGrid(remote, layout.layout);

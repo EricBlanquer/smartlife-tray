@@ -115,16 +115,19 @@ def contains(spot, x, y):
 
 
 class SkinGeometry:
-    def __init__(self, width, height, hotspots):
+    def __init__(self, width, height, hotspots, origin=(0, 0)):
         self.width = width
         self.height = height
         self.hotspots = hotspots
+        self.origin = origin
 
     def hotspot_at(self, x, y):
         return next((spot for spot in self.hotspots if contains(spot, x, y)), None)
 
     def web(self, image):
         return {
+            "x": self.origin[0],
+            "y": self.origin[1],
             "width": self.width,
             "height": self.height,
             "image": image,

@@ -157,13 +157,14 @@ bascules VOL et CH.
 Comme sur la vraie télécommande, chaque bascule a trois zones : au-dessus de la barre pour monter,
 au-dessous pour descendre, et la barre elle-même pour l'appui, qui coupe ou rétablit le son (VOL) ou ouvre
 le guide des programmes (CH) ; la molette de la souris règle le volume ou change de chaîne.
-**123** ouvre à côté un pavé assorti, en aluminium brossé, avec les autres touches et les chiffres.
+**123** affiche ou masque, sur le manche de la télécommande au-dessus du logo, un pavé avec les autres touches et
+les chiffres, sans changer la taille de la fenêtre.
 Ambient envoie `KEY_AMBIENT` et le micro `KEY_MIC`.
 Netflix, Prime Video et Rakuten TV lancent leur application par son identifiant (`*_APP_ID` dans
 `remote_layout.py`) sur la même connexion WebSocket, après avoir vérifié sur l'API de la TV qu'elle est
 installée ; sinon le bandeau d'état l'indique.
-Ce pavé est dessiné en SVG par `remote_keypad.py` d'après `KEYPAD_FUNCTION_ROWS` et `DIGIT_ROWS`, et la page web
-le reçoit sur `/remote-keypad.svg`.
+Ce pavé est dessiné en SVG transparent par `remote_keypad.py` d'après `KEYPAD_ROWS`, posé à `KEYPAD_ORIGIN` dans
+les coordonnées de la photo ; la page web le reçoit sur `/remote-keypad.svg` et l'ajoute en calque masqué.
 
 La fenêtre affiche la photo réduite de moitié (`SKIN_DISPLAY_SCALE`), sans marge ni barre de titre, sur un fond
 transparent quand le bureau est composité.
