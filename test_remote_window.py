@@ -57,6 +57,38 @@ def press_event(x, y, button=Gdk.BUTTON_PRIMARY, event_type=Gdk.EventType.BUTTON
     return SimpleNamespace(x=x, y=y, button=button, type=event_type)
 
 
+def frame_corner(window):
+    gdk_window = window.get_window()
+    if gdk_window is None or not window.get_mapped():
+        return None
+    frame = gdk_window.get_frame_extents()
+    return frame.x + frame.width, frame.y + frame.height
+
+
+def work_area_corner(window):
+    display = window.get_display()
+    area = (display.get_primary_monitor() or display.get_monitor(0)).get_workarea()
+    return area.x + area.width, area.y + area.height
+
+
+class CornerPlacementTests(unittest.TestCase):
+    def open_window(self, skin_path):
+        tv = Mock()
+        tv.remote_open = True
+        window = RemoteWindow(tv, Mock(), tray.ICON_FILE, skin_path)
+        self.addCleanup(window.worker.join, WAIT_SECONDS)
+        self.addCleanup(window.destroy)
+        return window
+
+    def test_window_opens_against_the_bottom_right_corner_of_the_work_area(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for skin_path in (None, make_skin(directory)):
+                with self.subTest(photo=skin_path is not None):
+                    window = self.open_window(skin_path)
+                    self.assertEqual(window.get_gravity(), Gdk.Gravity.SOUTH_EAST)
+                    self.assertTrue(wait_until(lambda: frame_corner(window) == work_area_corner(window)))
+
+
 class RemoteLayoutTests(unittest.TestCase):
     def cells(self, layout):
         return [cell for row in layout for cell in row if cell is not None]

@@ -193,7 +193,10 @@ class RemoteWindow(Gtk.Window):
         self.toast_source_id = None
         self.panel = None
         self.skin = self.load_skin(skin_path)
-        self.add(self.create_grid_view() if self.skin is None else self.create_skin_view())
+        content = self.create_grid_view() if self.skin is None else self.create_skin_view()
+        content.show_all()
+        self.add(content)
+        self.place_in_bottom_right_corner()
         self.connect("key-press-event", self.on_key_press)
         self.connect("key-release-event", self.on_key_release)
         self.connect("focus-out-event", self.on_focus_out)
@@ -209,6 +212,13 @@ class RemoteWindow(Gtk.Window):
             return SkinView(skin_path, self.on_hotspot_pressed, self.stop_repeat, self.queue_key)
         except GLib.Error:
             return None
+
+    def place_in_bottom_right_corner(self):
+        display = self.get_display()
+        area = (display.get_primary_monitor() or display.get_monitor(0)).get_workarea()
+        size = self.get_preferred_size().natural_size
+        self.set_gravity(Gdk.Gravity.SOUTH_EAST)
+        self.move(area.x + area.width - size.width, area.y + area.height - size.height)
 
     def create_grid_view(self):
         self.set_border_width(BORDER_WIDTH)

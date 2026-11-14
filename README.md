@@ -135,6 +135,8 @@ Un échec affiche un message et permet de réessayer.
 
 **Télévision → Télécommande…** ouvre une fenêtre qui reproduit la télécommande : marche/arrêt, source,
 accueil, menu, guide, infos, flèches et OK, retour, quitter, volume, muet, chaînes, lecture et chiffres.
+Elle s'ouvre collée au coin inférieur droit de la zone de travail de l'écran principal, au-dessus du panneau,
+et y reste ancrée quand elle s'agrandit.
 Les touches sont décrites une seule fois dans `remote_layout.py`, partagé avec la page web.
 
 Les touches partent sur une connexion WebSocket gardée ouverte, pour réagir sans délai.
