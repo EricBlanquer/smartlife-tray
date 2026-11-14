@@ -56,7 +56,7 @@ def make_skin(directory):
 
 
 def press_event(x, y, button=Gdk.BUTTON_PRIMARY, event_type=Gdk.EventType.BUTTON_PRESS):
-    return SimpleNamespace(x=x, y=y, button=button, type=event_type)
+    return SimpleNamespace(x=x, y=y, x_root=x + 1000.5, y_root=y + 500.5, time=42, button=button, type=event_type)
 
 
 def frame_corner(window):
@@ -328,7 +328,7 @@ class SkinWindowTests(unittest.TestCase):
             self.click(*center(spot), view=keypad)
             self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == count))
         self.assertEqual(self.sent_keys(), [spot["key"] for spot in KEYPAD_HOTSPOTS])
-        self.assertFalse(self.press(5, 5, keypad))
+        self.assertIsNone(KEYPAD.hotspot_at(5, 5))
 
     def test_hotspots_send_their_keys(self):
         for x, y in ((150, 273), (244, 366), (150, 459), (56, 366), (150, 366), (64, 520), (150, 544), (239, 520)):
@@ -362,9 +362,36 @@ class SkinWindowTests(unittest.TestCase):
         self.tv.send_key.assert_not_called()
 
     def test_inert_areas_and_other_buttons_do_nothing(self):
-        for x, y in ((150, 175), (244, 212), (5, 5)):
-            self.assertFalse(self.press(x, y))
-        self.assertFalse(self.press(150, 366, button=Gdk.BUTTON_SECONDARY))
+        with patch.object(self.window, "begin_move_drag"), patch.object(self.window.context_menu, "popup_at_pointer"):
+            for x, y in ((150, 175), (244, 212), (5, 5)):
+                self.assertFalse(self.press(x, y, button=Gdk.BUTTON_MIDDLE))
+                self.assertFalse(self.press(x, y, event_type=Gdk.EventType._2BUTTON_PRESS))
+        drain_events()
+        self.tv.send_key.assert_not_called()
+
+    def test_photo_window_has_no_title_bar(self):
+        self.assertFalse(self.window.get_decorated())
+
+    def test_dragging_outside_the_keys_moves_the_window(self):
+        with patch.object(self.window, "begin_move_drag") as move:
+            self.assertTrue(self.press(150, 175))
+            self.assertTrue(self.press(5, 5, self.window.keypad))
+        position = self.point(150, 175)
+        self.assertEqual(move.call_args_list[0].args, (Gdk.BUTTON_PRIMARY, int(position["x"] + 1000.5), int(position["y"] + 500.5), 42))
+        self.assertEqual(move.call_count, 2)
+        self.assertIsNone(self.window.skin.pressed)
+        drain_events()
+        self.tv.send_key.assert_not_called()
+
+    def test_right_click_offers_to_close_the_remote(self):
+        with patch.object(self.window.context_menu, "popup_at_pointer") as popup:
+            self.assertTrue(self.press(150, 366, button=Gdk.BUTTON_SECONDARY))
+            self.assertTrue(self.press(5, 5, self.window.keypad, button=Gdk.BUTTON_SECONDARY))
+        self.assertEqual(popup.call_count, 2)
+        items = self.window.context_menu.get_children()
+        self.assertEqual([item.get_label() for item in items], ["Fermer la télécommande"])
+        items[0].activate()
+        self.assertTrue(wait_until(lambda: self.window.closed))
         drain_events()
         self.tv.send_key.assert_not_called()
 
@@ -448,6 +475,7 @@ class SkinWindowTests(unittest.TestCase):
         self.addCleanup(window.destroy)
         self.assertIsNone(window.skin)
         self.assertIn("KEY_UP", window.buttons)
+        self.assertTrue(window.get_decorated())
 
 
 class TrayRemoteTests(unittest.TestCase):

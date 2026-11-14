@@ -1,6 +1,7 @@
 import queue
 import threading
 
+import cairo
 import gi
 
 gi.require_version("Gdk", "3.0")
@@ -33,6 +34,24 @@ SVG_LOADER = "svg"
 TOAST_MARGIN = 8
 TOAST_MAX_WIDTH_CHARS = 20
 TOAST_HIDE_DELAY_MS = 5000
+CLOSE_TEXT = "Fermer la télécommande"
+MENU_STYLE_CLASS = "remote-menu"
+MENU_CSS = b"""
+menu.remote-menu {
+  background-color: #ffffff;
+  color: #16181d;
+}
+menu.remote-menu menuitem {
+  color: #16181d;
+}
+menu.remote-menu menuitem:hover {
+  background-color: #1f6feb;
+  color: #ffffff;
+}
+menu.remote-menu menuitem:disabled {
+  color: #6b7280;
+}
+"""
 TOAST_STYLE_CLASS = "remote-toast"
 TOAST_CSS = b"""
 .remote-toast {
@@ -67,6 +86,15 @@ def is_primary_press(event):
     return event.type == Gdk.EventType.BUTTON_PRESS and event.button == Gdk.BUTTON_PRIMARY
 
 
+def add_css(widget, css, style_class):
+    provider = Gtk.CssProvider()
+    provider.load_from_data(css)
+    style = widget.get_style_context()
+    style.add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    style.add_class(style_class)
+    return provider
+
+
 def remove_source(source_id):
     if source_id is not None:
         GLib.source_remove(source_id)
@@ -94,7 +122,7 @@ def load_svg(data, geometry):
 
 
 class SkinView(Gtk.DrawingArea):
-    def __init__(self, pixbuf, geometry, on_press, on_release, on_wheel):
+    def __init__(self, pixbuf, geometry, on_press, on_release, on_wheel, on_menu):
         super().__init__()
         self.pixbuf = pixbuf
         self.geometry = geometry
@@ -104,6 +132,7 @@ class SkinView(Gtk.DrawingArea):
         self.on_press = on_press
         self.on_release = on_release
         self.on_wheel = on_wheel
+        self.on_menu = on_menu
         self.hovered = None
         self.pressed = None
         self.set_size_request(width, height)
@@ -157,9 +186,17 @@ class SkinView(Gtk.DrawingArea):
         return False
 
     def on_button_press(self, widget, event):
-        spot = self.spot_at(event.x, event.y)
-        if spot is None or not is_primary_press(event):
+        if event.type != Gdk.EventType.BUTTON_PRESS:
             return False
+        if event.button == Gdk.BUTTON_SECONDARY:
+            self.on_menu(event)
+            return True
+        if event.button != Gdk.BUTTON_PRIMARY:
+            return False
+        spot = self.spot_at(event.x, event.y)
+        if spot is None:
+            self.get_toplevel().begin_move_drag(event.button, int(event.x_root), int(event.y_root), event.time)
+            return True
         self.pressed = spot
         self.queue_draw()
         self.on_press(spot)
@@ -211,6 +248,7 @@ class RemoteWindow(Gtk.Window):
         self.status_label.set_line_wrap(True)
         self.toast_source_id = None
         self.panel = None
+        self.context_menu = None
         self.skin, self.keypad = self.load_views(skin_path)
         content = self.create_grid_view() if self.skin is None else self.create_photo_view()
         content.show_all()
@@ -235,7 +273,9 @@ class RemoteWindow(Gtk.Window):
         return self.create_view(photo, REMOTE_SKIN), self.create_view(keypad, KEYPAD)
 
     def create_view(self, pixbuf, geometry):
-        return SkinView(pixbuf, geometry, self.on_hotspot_pressed, self.stop_repeat, self.queue_key)
+        return SkinView(
+            pixbuf, geometry, self.on_hotspot_pressed, self.stop_repeat, self.queue_key, self.show_context_menu
+        )
 
     def place_in_bottom_right_corner(self):
         display = self.get_display()
@@ -254,6 +294,9 @@ class RemoteWindow(Gtk.Window):
         return box
 
     def create_photo_view(self):
+        self.set_decorated(False)
+        self.use_transparent_background()
+        self.context_menu = self.create_context_menu()
         self.style_toast()
         overlay = Gtk.Overlay()
         overlay.add(self.skin)
@@ -266,6 +309,38 @@ class RemoteWindow(Gtk.Window):
         box.pack_start(self.panel, False, False, 0)
         return box
 
+    def use_transparent_background(self):
+        screen = self.get_screen()
+        visual = screen.get_rgba_visual()
+        if visual is None or not screen.is_composited():
+            return
+        self.set_visual(visual)
+        self.set_app_paintable(True)
+        self.connect("draw", self.on_draw_background)
+
+    def on_draw_background(self, window, context):
+        context.set_operator(cairo.OPERATOR_CLEAR)
+        context.paint()
+        context.set_operator(cairo.OPERATOR_OVER)
+        return False
+
+    def create_context_menu(self):
+        menu = Gtk.Menu()
+        provider = add_css(menu, MENU_CSS, MENU_STYLE_CLASS)
+        item = Gtk.MenuItem(label=CLOSE_TEXT)
+        item.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        item.connect("activate", self.on_close_activated)
+        menu.append(item)
+        menu.attach_to_widget(self)
+        menu.show_all()
+        return menu
+
+    def show_context_menu(self, event):
+        self.context_menu.popup_at_pointer(event)
+
+    def on_close_activated(self, item):
+        self.close()
+
     def style_toast(self):
         label = self.status_label
         label.set_justify(Gtk.Justification.CENTER)
@@ -274,11 +349,7 @@ class RemoteWindow(Gtk.Window):
         label.set_valign(Gtk.Align.END)
         label.set_property("margin", TOAST_MARGIN)
         label.set_no_show_all(True)
-        provider = Gtk.CssProvider()
-        provider.load_from_data(TOAST_CSS)
-        style = label.get_style_context()
-        style.add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-        style.add_class(TOAST_STYLE_CLASS)
+        add_css(label, TOAST_CSS, TOAST_STYLE_CLASS)
 
     def create_grid(self, layout):
         grid = Gtk.Grid(

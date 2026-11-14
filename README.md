@@ -160,7 +160,9 @@ les pastilles de couleur restent inertes.
 Ce pavé est dessiné en SVG par `remote_keypad.py` d'après `KEYPAD_FUNCTION_ROWS` et `DIGIT_ROWS`, et la page web
 le reçoit sur `/remote-keypad.svg`.
 
-La fenêtre affiche la photo réduite (`SKIN_DISPLAY_SCALE`), sans marge.
+La fenêtre affiche la photo réduite (`SKIN_DISPLAY_SCALE`), sans marge ni barre de titre, sur un fond
+transparent quand le bureau est composité.
+Un clic maintenu hors des touches suivi d'un glisser la déplace ; le clic droit propose de la fermer, comme Alt+F4.
 L'état (connexion, échec, commande marche/arrêt) apparaît dans un bandeau sur le bas de la photo, qui laisse
 passer les clics et disparaît 5 s après un message final ; la page web ajuste la photo à la hauteur de l'écran.
 
