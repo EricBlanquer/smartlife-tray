@@ -1,11 +1,14 @@
 import http.client
 import json
 import os
+import select
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 
+import websocket
 from samsungtvws import SamsungTVWS
 
 CONFIG_FILENAME = "tv.json"
@@ -15,6 +18,8 @@ REMOTE_PORT = 8002
 STATUS_PATH = "/api/v2/"
 STATUS_TIMEOUT_SECONDS = 2
 REMOTE_TIMEOUT_SECONDS = 30
+REMOTE_KEY_PRESS_DELAY_SECONDS = 0
+REMOTE_IDLE_SECONDS = 60
 NETWORK_TIMEOUT_SECONDS = 5
 WOL_PORTS = (9, 7)
 WOL_BURST_COUNT = 10
@@ -24,6 +29,7 @@ POWER_ON_RETRY_INTERVAL_SECONDS = 3
 CLIENT_NAME = "SmartLife"
 POWER_KEY = "KEY_POWER"
 POWER_STATES = {"on": True, "off": False, "standby": False}
+REMOTE_ERRORS = (OSError, websocket.WebSocketException)
 
 
 class Television:
@@ -33,6 +39,9 @@ class Television:
         self.host = None
         self.mac = None
         self.is_on = None
+        self.remote = None
+        self.remote_used_at = None
+        self.remote_lock = threading.Lock()
         try:
             with open(os.path.join(config_dir, CONFIG_FILENAME), encoding="utf-8") as handle:
                 config = json.load(handle)
@@ -53,6 +62,18 @@ class Television:
     @property
     def configured(self):
         return self.host is not None and self.mac is not None
+
+    @property
+    def remote_open(self):
+        return self.remote is not None
+
+    def require_configuration(self):
+        if not self.configured:
+            raise ValueError("Configure the TV host and MAC address in tv.json first")
+
+    def require_known_power_state(self):
+        if self.is_on is None:
+            raise OSError("TV power state unavailable; cannot safely send the power key")
 
     def refresh(self):
         self.is_on = None
@@ -95,12 +116,16 @@ class Television:
         raise OSError("No LAN broadcast interface found for the TV")
 
     def set_power(self, power):
-        if not self.configured:
-            raise ValueError("Configure the TV host and MAC address in tv.json first")
+        self.require_configuration()
         if power:
             self.turn_on()
         else:
             self.turn_off()
+
+    def toggle_power(self):
+        self.require_configuration()
+        self.refresh()
+        self.set_power(self.is_on is not True)
 
     def turn_on(self):
         deadline = time.monotonic() + POWER_ON_TIMEOUT_SECONDS
@@ -129,29 +154,86 @@ class Television:
         self.refresh()
         if self.is_on is False:
             return
-        if self.is_on is None:
-            raise OSError("TV power state unavailable; cannot safely send the power key")
-        os.makedirs(self.config_dir, exist_ok=True)
+        self.require_known_power_state()
+        with self.connect_remote() as remote:
+            self.refresh()
+            self.require_known_power_state()
+            if self.is_on:
+                remote.send_key(POWER_KEY)
+
+    def send_key(self, key):
+        self.require_configuration()
+        with self.remote_lock:
+            if self.remote is not None and self.remote_reusable():
+                try:
+                    self.press(self.remote, key)
+                    return
+                except REMOTE_ERRORS:
+                    pass
+            self.discard_remote()
+            remote = self.connect_remote()
+            try:
+                self.press(remote, key)
+            except BaseException:
+                remote.close()
+                raise
+            self.remote = remote
+
+    def press(self, remote, key):
+        remote.send_key(key, key_press_delay=REMOTE_KEY_PRESS_DELAY_SECONDS)
+        self.remote_used_at = time.monotonic()
+
+    def remote_reusable(self):
+        if time.monotonic() - self.remote_used_at > REMOTE_IDLE_SECONDS:
+            return False
+        connection = self.remote.connection
+        if connection is None or not connection.connected:
+            return False
         try:
-            with open(self.token_file, encoding="utf-8") as handle:
-                token = handle.read().strip() or None
-        except FileNotFoundError:
-            token = None
-        with SamsungTVWS(
+            while select.select([connection.sock], [], [], 0)[0] or connection.sock.pending():
+                if not connection.recv():
+                    return False
+        except REMOTE_ERRORS:
+            return False
+        return True
+
+    def close_remote(self):
+        with self.remote_lock:
+            self.discard_remote()
+
+    def discard_remote(self):
+        remote, self.remote = self.remote, None
+        if remote is None:
+            return
+        try:
+            remote.close()
+        except REMOTE_ERRORS:
+            pass
+
+    def connect_remote(self):
+        os.makedirs(self.config_dir, exist_ok=True)
+        remote = SamsungTVWS(
             host=self.host,
             port=REMOTE_PORT,
-            token=token,
+            token=self.load_token(),
             name=CLIENT_NAME,
             timeout=REMOTE_TIMEOUT_SECONDS,
-        ) as remote:
+        )
+        try:
             remote.open()
             if remote.token:
                 self.save_token(remote.token)
-            self.refresh()
-            if self.is_on is None:
-                raise OSError("TV power state unavailable; cannot safely send the power key")
-            if self.is_on:
-                remote.send_key(POWER_KEY)
+        except BaseException:
+            remote.close()
+            raise
+        return remote
+
+    def load_token(self):
+        try:
+            with open(self.token_file, encoding="utf-8") as handle:
+                return handle.read().strip() or None
+        except FileNotFoundError:
+            return None
 
     def save_token(self, token):
         temporary_path = None

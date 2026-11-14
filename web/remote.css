@@ -1,0 +1,132 @@
+:root {
+  --background: #f3f4f7;
+  --surface: #ffffff;
+  --surface-pressed: #d9dde6;
+  --border: #c9ced8;
+  --text: #16181d;
+  --muted: #555b66;
+  --accent: #1f6feb;
+  --accent-text: #ffffff;
+  --power: #c62828;
+  --power-text: #ffffff;
+  --error: #b3261e;
+  --focus: #1f6feb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #16181d;
+    --surface: #262a33;
+    --surface-pressed: #3a404c;
+    --border: #3a404c;
+    --text: #f1f3f7;
+    --muted: #aab1bd;
+    --accent: #3d8bff;
+    --accent-text: #ffffff;
+    --power: #e5484d;
+    --power-text: #ffffff;
+    --error: #ff8a80;
+    --focus: #8ab4ff;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+}
+
+.remote {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+}
+
+.remote-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.remote-header h1 {
+  margin: 0 12px 0 0;
+  font-size: 1.25rem;
+}
+
+.state {
+  margin: 0;
+  color: var(--muted);
+}
+
+.pad {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pad button {
+  min-height: 56px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 1.05rem;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pad button:active,
+.pad button.pressed {
+  background: var(--surface-pressed);
+}
+
+.pad button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.pad button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.pad button.style-accent {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.pad button.style-power {
+  border-color: var(--power);
+  background: var(--power);
+  color: var(--power-text);
+  font-size: 1.4rem;
+}
+
+.pad button.style-accent:active,
+.pad button.style-power:active {
+  filter: brightness(0.85);
+}
+
+.message {
+  min-height: 1.5em;
+  margin: 16px 0 0;
+  color: var(--error);
+}

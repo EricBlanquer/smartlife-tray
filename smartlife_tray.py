@@ -19,17 +19,14 @@ import unicodedata
 
 import tinytuya
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from app_paths import APP_ID, CONFIG_DIR
+from remote_window import RemoteWindow
 from television import Television
 
-APP_ID = "smartlife-tray"
 APP_TITLE = "SmartLife"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEVICES_FILE = os.path.join(BASE_DIR, "devices.json")
 ICON_FILE = os.path.join(BASE_DIR, "icons", "smartlife-tray.svg")
-CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
-    os.path.expanduser("~"), ".config"
-)
-CONFIG_DIR = os.path.join(CONFIG_HOME, APP_ID)
 PRESETS_FILE = os.path.join(CONFIG_DIR, "presets.json")
 PRESETS_TEMP_FILE = PRESETS_FILE + ".tmp"
 PRESETS_INDENT = 2
@@ -489,6 +486,7 @@ class TrayApplication:
         self.busy = False
         self.tv = Television(CONFIG_DIR)
         self.tv_busy = False
+        self.remote_window = None
         self.indicator = None
         self.watcher_id = None
         self.indicator_wait_source_id = None
@@ -758,6 +756,9 @@ class TrayApplication:
             item.connect("activate", self.on_tv_power_clicked, power)
             submenu.append(item)
             self.tv_power_items[power] = item
+        self.tv_remote_item = Gtk.MenuItem(label="Télécommande…")
+        self.tv_remote_item.connect("activate", self.on_tv_remote_clicked)
+        submenu.append(self.tv_remote_item)
         self.tv_status_item = Gtk.MenuItem(label="Contrôle local")
         self.tv_status_item.set_sensitive(False)
         submenu.append(self.tv_status_item)
@@ -783,6 +784,7 @@ class TrayApplication:
             item.set_sensitive(
                 self.tv.configured and not self.tv_busy and self.tv.is_on is not power
             )
+        self.tv_remote_item.set_sensitive(self.tv.configured)
         return False
 
     def build_presets_menu(self, submenu, widgets, device):
@@ -1268,18 +1270,41 @@ class TrayApplication:
     def on_refresh_clicked(self, item):
         self.run_background(self.locate_and_refresh_all)
 
+    def on_tv_remote_clicked(self, item):
+        if self.remote_window is None:
+            self.remote_window = RemoteWindow(self.tv, self.toggle_tv_power, ICON_FILE)
+            self.remote_window.connect("destroy", self.on_remote_window_destroyed)
+        self.remote_window.present()
+
+    def on_remote_window_destroyed(self, window):
+        self.remote_window = None
+
     def on_tv_power_clicked(self, item, power):
+        self.start_tv_power_command(
+            lambda: self.tv.set_power(power),
+            "Allumage en cours…" if power else "Extinction en cours…",
+        )
+
+    def toggle_tv_power(self):
+        self.start_tv_power_command(self.tv.toggle_power, "Commande en cours…")
+
+    def start_tv_power_command(self, command, progress):
         if self.tv_busy:
             return
         self.tv_busy = True
         self.sync_tv_widgets()
-        self.tv_status_item.set_label("Allumage en cours…" if power else "Extinction en cours…")
-        self.run_background(lambda: self.send_tv_power(power))
+        self.show_tv_status(progress)
+        self.run_background(lambda: self.send_tv_power(command))
 
-    def send_tv_power(self, power):
+    def show_tv_status(self, text):
+        self.tv_status_item.set_label(text)
+        if self.remote_window is not None:
+            self.remote_window.show_status(text)
+
+    def send_tv_power(self, command):
         error = None
         try:
-            self.tv.set_power(power)
+            command()
             time.sleep(COMMAND_SETTLE_SECONDS)
             self.tv.refresh()
         except Exception as ex:
@@ -1289,9 +1314,7 @@ class TrayApplication:
     def finish_tv_power(self, error):
         self.tv_busy = False
         self.sync_tv_widgets()
-        self.tv_status_item.set_label(
-            "Échec de la commande" if error else "Commande envoyée"
-        )
+        self.show_tv_status("Échec de la commande" if error else "Commande envoyée")
         if error:
             self.report_error(f"Commande TV impossible{NBSP}: {error}")
         return False

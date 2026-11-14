@@ -12,6 +12,7 @@ class TelevisionMenuTests(unittest.TestCase):
         self.app.device_widgets = {}
         self.app.menu = tray.Gtk.Menu()
         self.app.tv_busy = False
+        self.app.remote_window = None
         self.app.tv = Mock(spec=tray.Television)
         self.app.tv.configured = True
         self.app.tv.is_on = None
@@ -61,9 +62,9 @@ class TelevisionMenuTests(unittest.TestCase):
 
         send = self.app.send_tv_power
 
-        def work(power):
+        def work(command):
             try:
-                send(power)
+                send(command)
             finally:
                 completed.set()
 
@@ -89,7 +90,8 @@ class TelevisionMenuTests(unittest.TestCase):
     def test_power_off_uses_an_explicit_off_command_and_refreshes_real_state(self):
         self.app.tv.is_on = True
         self.app.tv.refresh.side_effect = lambda: setattr(self.app.tv, "is_on", False)
-        self.app.send_tv_power(False)
+        self.app.run_background = lambda work: work()
+        self.app.tv_power_items[False].activate()
         self.drain_events()
         self.app.tv.set_power.assert_called_once_with(False)
         self.assertIn("en veille", self.app.tv_root_item.get_label())
@@ -100,14 +102,14 @@ class TelevisionMenuTests(unittest.TestCase):
             with self.subTest(failure=failure):
                 self.app.tv_busy = True
                 self.app.tv.set_power.side_effect = failure
-                self.app.send_tv_power(False)
+                self.app.send_tv_power(lambda: self.app.tv.set_power(False))
                 self.drain_events()
                 self.assertFalse(self.app.tv_busy)
                 self.assertTrue(all(item.get_sensitive() for item in self.app.tv_power_items.values()))
                 self.assertEqual(self.app.tv_status_item.get_label(), "Échec de la commande")
                 self.assertIn(str(failure) or type(failure).__name__, self.errors[-1])
         self.app.tv.set_power.side_effect = None
-        self.app.send_tv_power(True)
+        self.app.send_tv_power(lambda: self.app.tv.set_power(True))
         self.drain_events()
         self.assertEqual(self.app.tv_status_item.get_label(), "Commande envoyée")
 

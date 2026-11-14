@@ -27,6 +27,7 @@ Les adresses IP ne sont jamais codées en dur : les appareils sont redécouverts
 - Préréglages par appareil : capture de l'état courant, rejeu en un clic
 - Rafraîchissement automatique adaptatif, détection des appareils hors ligne
 - TV Samsung : allumage par Wake-on-LAN, extinction et lecture de l'état par l'API locale
+- Télécommande TV complète, en fenêtre de bureau ou en page web servie sur le réseau local
 
 Les commandes couvrent tous les points de données que les appareils acceptent réellement.
 Les fonctions déclarées par le cloud Tuya mais ignorées par le matériel sont volontairement absentes : mode musique, programmations horaires et mémoire d'état côté ampoule.
@@ -130,6 +131,69 @@ Les commandes tournent en arrière-plan et leur résultat apparaît dans le menu
 « Commande envoyée » confirme l'envoi, tandis que le titre du sous-menu affiche l'état lu sur la TV.
 Un échec affiche un message et permet de réessayer.
 
+## Télécommande
+
+**Télévision → Télécommande…** ouvre une fenêtre qui reproduit la télécommande : marche/arrêt, source,
+accueil, menu, guide, infos, flèches et OK, retour, quitter, volume, muet, chaînes, lecture et chiffres.
+La disposition est décrite une seule fois dans `remote_layout.py`, partagée avec la page web.
+
+Les touches partent sur une connexion WebSocket gardée ouverte, pour réagir sans délai.
+Elle est rouverte si la TV l'a fermée ou après 60 s d'inactivité, et la touche est renvoyée une fois sur une nouvelle connexion si l'envoi échoue.
+Le bouton marche/arrêt relit l'état de la TV puis allume par Wake-on-LAN ou éteint, comme le menu.
+Maintenir une flèche ou le volume répète la touche ; un échec s'affiche sous les boutons et vide les touches en attente.
+
+Raccourcis clavier de la fenêtre :
+
+| Touche | Action |
+|--------|--------|
+| Flèches | Navigation (répétée tant que la touche est enfoncée) |
+| Entrée | OK |
+| Retour arrière | Retour |
+| Échap | Quitter |
+| Origine | Accueil |
+| `+` / `-` | Volume |
+| `m` | Muet |
+| Page haut / Page bas | Chaîne + / Chaîne − |
+| `s`, `g`, `i` | Source, guide, infos |
+| `0` à `9` | Chiffres |
+
+## Télécommande web
+
+`tv_remote_server.py` sert la même télécommande en page web, utilisable depuis un téléphone sur le réseau local.
+Il n'a besoin que de `samsungtvws` et de la même configuration `tv.json` :
+
+```bash
+python3 -m venv venv
+venv/bin/pip install -r requirements-server.txt
+venv/bin/python tv_remote_server.py --bind 192.0.2.20 --port 8095
+```
+
+`--bind` prend l'adresse IP de la machine sur le LAN (127.0.0.1 par défaut).
+Ne pas écouter sur toutes les interfaces d'une machine dotée d'une IPv6 publique, ni rediriger ce port depuis la box :
+la page n'a pas d'authentification, tout appareil qui l'atteint commande la TV.
+La page refuse les requêtes intersites : en-tête `Host` limité aux adresses IP et aux noms passés par
+`--allowed-host`, `Origin` identique à la page, corps JSON obligatoire et liste blanche des touches.
+
+Exemple de service systemd (`/etc/systemd/system/tv-remote.service`) :
+
+```ini
+[Unit]
+Description=Samsung TV web remote
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=utilisateur
+ExecStart=/chemin/vers/venv/bin/python /chemin/vers/tv_remote_server.py --bind 192.0.2.20
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+La configuration et le jeton se trouvent dans `~/.config/smartlife-tray/` de l'utilisateur du service.
+Le premier envoi de touche déclenche la demande d'autorisation **SmartLife** sur la TV, comme pour l'extinction.
+
 ## Tests
 
 ```bash
@@ -137,7 +201,8 @@ xvfb-run -a venv/bin/python -m unittest -v
 ```
 
 Les tests vérifient les menus GTK, les erreurs réseau, les états inconnus, les permissions
-du jeton et les paquets WoL reçus par des sockets UDP locales.
+du jeton, les paquets WoL reçus par des sockets UDP locales, la fenêtre de télécommande,
+la reprise de connexion et les protections du serveur web.
 Ils ne commandent aucun appareil réel.
 
 ## Préréglages

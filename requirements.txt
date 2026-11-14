@@ -1,2 +1,2 @@
+-r requirements-server.txt
 tinytuya==1.20.0
-samsungtvws==3.0.5
