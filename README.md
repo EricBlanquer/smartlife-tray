@@ -134,7 +134,8 @@ Un échec affiche un message et permet de réessayer.
 ## Télécommande
 
 **Télévision → Télécommande…** ouvre une fenêtre qui reproduit la télécommande : marche/arrêt, source,
-accueil, menu, guide, infos, flèches et OK, retour, quitter, volume, muet, chaînes, lecture et chiffres.
+accueil, menu, guide, infos, flèches et OK, retour, quitter, volume, muet, chaînes, lecture, chiffres, mode
+Ambiant, Netflix et Prime Video.
 Elle s'ouvre collée au coin inférieur droit de la zone de travail de l'écran principal, au-dessus du panneau,
 et y reste ancrée quand elle s'agrandit.
 Les touches sont décrites une seule fois dans `remote_layout.py`, partagé avec la page web.
@@ -156,8 +157,10 @@ bascules VOL et CH.
 Comme sur la vraie télécommande, chaque bascule a trois zones : au-dessus de la barre pour monter,
 au-dessous pour descendre, et la barre elle-même pour l'appui, qui coupe ou rétablit le son (VOL) ou ouvre
 le guide des programmes (CH) ; la molette de la souris règle le volume ou change de chaîne.
-**123** ouvre à côté un pavé assorti, en aluminium brossé, avec les autres touches et les chiffres ; le micro,
-Ambient, Netflix, Prime Video et Rakuten TV restent inertes.
+**123** ouvre à côté un pavé assorti, en aluminium brossé, avec les autres touches et les chiffres.
+La touche Ambient envoie `KEY_AMBIENT`, et Netflix et Prime Video lancent leur application par son
+identifiant (`NETFLIX_APP_ID`, `PRIME_VIDEO_APP_ID` dans `remote_layout.py`) sur la même connexion WebSocket.
+Le micro reste inerte, comme Rakuten TV, que la TV n'a pas installé.
 Ce pavé est dessiné en SVG par `remote_keypad.py` d'après `KEYPAD_FUNCTION_ROWS` et `DIGIT_ROWS`, et la page web
 le reçoit sur `/remote-keypad.svg`.
 

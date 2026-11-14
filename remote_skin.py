@@ -67,6 +67,7 @@ def sector(key, start, end):
 HOTSPOTS = [
     rect(POWER_ACTION, 37, 36, 117, 84, 24),
     circle(PANEL_ACTION, 70, 196, KEY_RADIUS),
+    circle("KEY_AMBIENT", 270, 193, KEY_RADIUS),
     circle("KEY_ENTER", DPAD_CENTER_X, DPAD_CENTER_Y, DPAD_INNER_RADIUS),
     sector("KEY_UP", 225, 315),
     sector("KEY_RIGHT", 315, 405),
@@ -77,6 +78,8 @@ HOTSPOTS = [
     circle(PLAY_PAUSE_KEY, 270, 550, KEY_RADIUS),
     *rocker(36, 171, "KEY_VOLUP", "KEY_MUTE", "KEY_VOLDOWN"),
     *rocker(172, 305, "KEY_CHUP", "KEY_GUIDE", "KEY_CHDOWN"),
+    circle("APP_NETFLIX", 68, 784, KEY_RADIUS),
+    circle("APP_PRIME_VIDEO", 169, 784, KEY_RADIUS),
 ]
 
 

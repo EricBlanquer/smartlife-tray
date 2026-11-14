@@ -18,6 +18,7 @@ from remote_layout import (
     REMOTE_LAYOUT,
     STYLE_ACCENT,
     STYLE_POWER,
+    send,
 )
 from remote_skin import REMOTE_SKIN, trace
 
@@ -475,7 +476,7 @@ class RemoteWindow(Gtk.Window):
             if not self.tv.remote_open:
                 GLib.idle_add(self.show_status, CONNECTING_TEXT, True)
             try:
-                self.tv.send_key(key)
+                send(self.tv, key)
             except Exception as ex:
                 self.drop_pending_keys()
                 GLib.idle_add(self.show_status, f"Échec{NBSP}: {str(ex) or type(ex).__name__}")

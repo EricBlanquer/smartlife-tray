@@ -163,25 +163,31 @@ class Television:
                 remote.send_key(POWER_KEY)
 
     def send_key(self, key):
+        self.use_remote(lambda remote: remote.send_key(key, key_press_delay=REMOTE_KEY_PRESS_DELAY_SECONDS))
+
+    def launch_app(self, app_id):
+        self.use_remote(lambda remote: remote.run_app(app_id))
+
+    def use_remote(self, command):
         self.require_configuration()
         with self.remote_lock:
             if self.remote is not None and self.remote_reusable():
                 try:
-                    self.press(self.remote, key)
+                    self.run(self.remote, command)
                     return
                 except REMOTE_ERRORS:
                     pass
             self.discard_remote()
             remote = self.connect_remote()
             try:
-                self.press(remote, key)
+                self.run(remote, command)
             except BaseException:
                 remote.close()
                 raise
             self.remote = remote
 
-    def press(self, remote, key):
-        remote.send_key(key, key_press_delay=REMOTE_KEY_PRESS_DELAY_SECONDS)
+    def run(self, remote, command):
+        command(remote)
         self.remote_used_at = time.monotonic()
 
     def remote_reusable(self):

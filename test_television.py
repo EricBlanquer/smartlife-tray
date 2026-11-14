@@ -286,6 +286,12 @@ class RemoteKeyTests(unittest.TestCase):
     def tv_frame(opcode, payload=b""):
         return bytes((0x80 | opcode, len(payload))) + payload
 
+    def test_apps_launch_on_the_shared_connection(self):
+        self.tv.send_key("KEY_UP")
+        self.tv.launch_app("3201907018807")
+        self.assertEqual(len(self.remotes), 1)
+        self.remotes[0].run_app.assert_called_once_with("3201907018807")
+
     def test_keys_reuse_one_paired_connection_without_press_delay(self):
         self.tv.send_key("KEY_UP")
         self.tv.send_key("KEY_DOWN")

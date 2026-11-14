@@ -101,7 +101,8 @@ class RemoteLayoutTests(unittest.TestCase):
                 self.assertTrue(all(len(row) == LAYOUT_COLUMNS for row in layout))
                 keys = [cell["key"] for cell in self.cells(layout)]
                 self.assertEqual(len(keys), len(set(keys)))
-        self.assertTrue(all(key.startswith("KEY_") for key in REMOTE_KEYS))
+        self.assertTrue(all(key.startswith("KEY_") or KEYS[key]["app"] for key in REMOTE_KEYS))
+        self.assertTrue(all(KEYS[key]["app"] is None for key in REMOTE_KEYS if key.startswith("KEY_")))
         self.assertEqual(REMOTE_KEYS | ACTIONS, set(KEYS))
 
     def test_every_key_is_reachable_without_the_photo(self):
@@ -350,6 +351,17 @@ class SkinWindowTests(unittest.TestCase):
             self.click(240, 673)
         self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 2))
         self.assertEqual(self.sent_keys(), ["KEY_MUTE", "KEY_GUIDE"])
+
+    def test_app_hotspots_launch_netflix_and_prime_video(self):
+        self.click(68, 784)
+        self.click(169, 784)
+        self.assertTrue(wait_until(lambda: self.tv.launch_app.call_count == 2))
+        self.assertEqual(
+            [entry.args[0] for entry in self.tv.launch_app.call_args_list], ["3201907018807", "3201512006785"]
+        )
+        self.click(270, 193)
+        self.assertTrue(wait_until(lambda: self.tv.send_key.call_count == 1))
+        self.assertEqual(self.sent_keys(), ["KEY_AMBIENT"])
 
     def test_power_and_123_hotspots_trigger_their_actions(self):
         self.click(77, 60)

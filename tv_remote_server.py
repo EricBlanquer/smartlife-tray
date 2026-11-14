@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 from app_paths import CONFIG_DIR
 from remote_keypad import KEYPAD, keypad_svg
-from remote_layout import PANEL_ACTION, POWER_ACTION, REMOTE_KEYS, REMOTE_LAYOUT
+from remote_layout import PANEL_ACTION, POWER_ACTION, REMOTE_KEYS, REMOTE_LAYOUT, send
 from remote_skin import REMOTE_SKIN, skin_file
 from television import CONFIG_FILENAME, Television
 
@@ -127,7 +127,7 @@ class RemoteRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json_error(HTTPStatus.BAD_REQUEST, "Unknown key")
             return
         try:
-            self.server.tv.send_key(key)
+            send(self.server.tv, key)
         except Exception as ex:
             self.send_json_error(HTTPStatus.BAD_GATEWAY, str(ex) or type(ex).__name__)
             return

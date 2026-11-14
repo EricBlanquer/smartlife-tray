@@ -3,9 +3,11 @@ PANEL_ACTION = "panel"
 STYLE_POWER = "power"
 STYLE_ACCENT = "accent"
 PLAY_PAUSE_KEY = "KEY_PLAY_BACK"
+NETFLIX_APP_ID = "3201907018807"
+PRIME_VIDEO_APP_ID = "3201512006785"
 
 
-def button(key, label, title, gtk_keys=(), web_keys=(), repeat=False, style=None):
+def button(key, label, title, gtk_keys=(), web_keys=(), repeat=False, style=None, app=None):
     return {
         "key": key,
         "label": label,
@@ -14,6 +16,7 @@ def button(key, label, title, gtk_keys=(), web_keys=(), repeat=False, style=None
         "web_keys": list(web_keys),
         "repeat": repeat,
         "style": style,
+        "app": app,
     }
 
 
@@ -46,6 +49,9 @@ KEYS = {
         button("KEY_CHUP", "Ch +", "Chaîne suivante", ("Page_Up",), ("PageUp",)),
         button("KEY_CHDOWN", "Ch −", "Chaîne précédente", ("Page_Down",), ("PageDown",)),
         button(PLAY_PAUSE_KEY, "⏯", "Lecture/Pause", ("space",), (" ",)),
+        button("KEY_AMBIENT", "Ambiant", "Mode Ambiant"),
+        button("APP_NETFLIX", "Netflix", "Netflix", app=NETFLIX_APP_ID),
+        button("APP_PRIME_VIDEO", "Prime Video", "Prime Video", app=PRIME_VIDEO_APP_ID),
         button("KEY_REWIND", "◀◀", "Retour rapide"),
         button("KEY_PLAY", "Lecture", "Lecture"),
         button("KEY_FF", "▶▶", "Avance rapide"),
@@ -78,6 +84,7 @@ REMOTE_LAYOUT = [
     row("KEY_VOLDOWN", None, "KEY_CHDOWN"),
     row("KEY_REWIND", "KEY_PLAY", "KEY_FF"),
     row("KEY_STOP", "KEY_PAUSE", PLAY_PAUSE_KEY),
+    row("KEY_AMBIENT", "APP_NETFLIX", "APP_PRIME_VIDEO"),
     *DIGIT_ROWS,
 ]
 
@@ -91,3 +98,11 @@ KEYPAD_FUNCTION_ROWS = [
 LAYOUT_COLUMNS = 3
 ACTIONS = frozenset((POWER_ACTION, PANEL_ACTION))
 REMOTE_KEYS = frozenset(key for key in KEYS if key not in ACTIONS)
+
+
+def send(tv, key):
+    app = KEYS[key]["app"]
+    if app:
+        tv.launch_app(app)
+    else:
+        tv.send_key(key)
